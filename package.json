@@ -1,0 +1,38 @@
+{
+  "name": "openvibe-git",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenVibe.Git — git.openvibe.codes: host code with your OpenVibe account, browse it, mirror GitHub, and clone it.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "NODE_ENV=development node server/index.js",
+    "test": "node test/run.js",
+    "test:pg": "GIT_TEST_STORE=pg node test/run.js"
+  },
+  "keywords": [
+    "openvibe",
+    "git",
+    "forge"
+  ],
+  "author": "OpenVibers",
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.1.0",
+    "openvibe-contracts": "https://codeload.github.com/OpenVibers/OpenVibe.Contracts/tar.gz/refs/tags/v0.356.0",
+    "openvibe-sdk": "https://codeload.github.com/OpenVibers/OpenVibe.SDK/tar.gz/refs/tags/v0.108.0",
+    "openvibe-shared": "https://codeload.github.com/OpenVibers/OpenVibe.Shared/tar.gz/refs/tags/v4.163.0",
+    "pg": "^8.23.1",
+    "highlight.js": "^11.10.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  }
+}
