@@ -35,3 +35,9 @@ A first-party service (Codes, Run, Link) holds a typed Network token for `openvi
 names in `X-OV-Subject`: `POST /api/v1/repos` (with `owner_username`), `GET /api/v1/profile/:username` and
 `POST /api/v1/tokens` then work as that person, and the Git token it mints is the person's own for clone and push.
 A service never holds a person's password.
+
+<!-- versions:start -->
+- openvibe-contracts: v0.356.0
+- openvibe-sdk: v0.108.0
+- openvibe-shared: v4.173.0
+<!-- versions:end -->
