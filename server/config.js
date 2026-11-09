@@ -83,11 +83,13 @@ function load(env = process.env) {
         officialOwners,
 
         // The official mirrors seed (server/official.js): the GitHub organisation to mirror, the OpenVibe owner
-        // the mirrors are created under, and how often a run is due. An empty GIT_OFFICIAL_ORG turns it off.
+        // the mirrors are created under, how often a run is due and how many clones may run at once. An empty
+        // GIT_OFFICIAL_ORG turns it off.
         official: {
             org: trim(env.GIT_OFFICIAL_ORG || ''),
             owner: String(env.GIT_OFFICIAL_OWNER || officialOwners[0] || 'openvibers').trim().toLowerCase(),
             syncMs: Math.max(60_000, int(env.GIT_OFFICIAL_SYNC_MS, 6 * 60 * 60 * 1000)),
+            concurrency: Math.max(1, Math.min(8, int(env.GIT_OFFICIAL_CONCURRENCY, 3))),
         },
 
         apiRateLimitPerMinute: Math.max(1, int(env.GIT_API_RATE_LIMIT_PER_MIN, 180)),

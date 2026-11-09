@@ -3,22 +3,31 @@
 /**
  * The official mirrors seed: every public repository in the GitHub organisation named by GIT_OFFICIAL_ORG becomes
  * a mirror under the official OpenVibe owner (GIT_OFFICIAL_OWNER, by default the first of GIT_OFFICIAL_OWNERS).
- * This is the one thing the Forgejo cut-over keeps: the mirror list is rebuilt from GitHub itself.
+ * This is the one thing the Forgejo cut-over keeps: the mirror list is rebuilt from the network's own contracts.
  *
  * The job is due-based, not timer-based: the last finished run is a row in the database (git_official_state,
  * migration 0002), so a deploy — and this service is deployed much more often than every six hours — does not
  * reset the interval. A tick runs shortly after boot and then hourly, and only does the work when the interval
  * has passed.
  *
- * A run lists all pages of the organisation's public repositories, skips forks and archived repositories, and
- * creates each missing one through repos.create (which clones with the mirror timeout). Names follow this
- * service's rule: lower-case, no leading dot, never ending in .git — "OpenVibe.Live" becomes "openvibe.live".
- * Nothing is ever deleted. One line per run says how many were created, already existed and failed.
+ * No REST quota is needed:
+ *   - the list comes from GitHub's REST API when it answers, and from openvibe-contracts manifests/services and
+ *     manifests/repositories when it does not (403/429/5xx/network); the run's summary says which;
+ *   - each candidate is checked as public and existing through git's protocol (ls-refs over github.com, which
+ *     spends no REST quota) and names the default branch; private and missing repositories are skipped and counted;
+ *   - a mirror is created through repos.create, which clones with the mirror timeout even when the metadata call
+ *     is refused, marking the card pending for a later run.
+ *
+ * Names follow this service's rule: lower-case, no leading dot, never ending in .git — "OpenVibe.Live" becomes
+ * "openvibe.live". Nothing is ever deleted. Clones run a few at a time. One line per run says where the list came
+ * from, how many were created, already existed, skipped (with the reason) and failed.
  *
  * It runs in the background: /api/ready never waits on it, and a failed run is logged and retried at the next
- * due time. An empty GIT_OFFICIAL_ORG keeps it off, and so does drill mode.
+ * due time. An empty GIT_OFFICIAL_ORG keeps it off, and so does drill mode. stop() ends a run at the next
+ * candidate; a run that was stopped is not recorded as finished, so the next boot tries again.
  */
 const { validName } = require('./git/refs');
+const { contractRepositories } = require('./contracts');
 
 const STATE_ID = 'official-mirrors';
 const FIRST_RUN_MS = 30_000;             // shortly after boot, not in the boot path
@@ -27,15 +36,17 @@ const FIRST_RUN_MS = 30_000;             // shortly after boot, not in the boot 
 // other hour, while the host's GitHub quota had come back).
 const TICK_MS = 15 * 60_000;
 
-function createOfficialMirrors({ store, repos, config, github, log = console, clock = null }) {
+function createOfficialMirrors({ store, repos, config, github, log = console, clock = null, contractList = null }) {
     const settings = config.official;
     const now = clock && clock.now ? () => clock.now() : () => store.now();
     const iso = () => new Date(now()).toISOString();
     let running = false;
+    let stopped = false;
     let timer = null;
     let first = null;
 
     const enabled = () => Boolean(settings.org) && !config.drill;
+    const listContracts = contractList || contractRepositories;
 
     /** When the last run finished and what it found. */
     async function lastRun() {
@@ -55,59 +66,161 @@ function createOfficialMirrors({ store, repos, config, github, log = console, cl
         );
     }
 
-    /** One pass over the organisation: create what is missing, count what is already there, delete nothing. */
+    /** Fill a mirror's card from the REST metadata once the API answers again; a quota refusal stops the attempts. */
+    async function fillPending(row, state) {
+        if (!row || !row.github_full_name || row.mirror_meta_state !== 'pending' || state.refused) return false;
+        try {
+            const meta = await github.meta(row.github_full_name);
+            const topics = meta.topics && meta.topics.length ? meta.topics : (typeof row.topics === 'string' ? JSON.parse(row.topics || '[]') : (row.topics || []));
+            await store.execute(
+                `UPDATE git_repos SET description = ?, topics = ?, default_branch = ?, mirror_meta_state = 'ready', updated_at = now() WHERE id = ?`,
+                [meta.description || row.description || '', JSON.stringify(topics), meta.default_branch || row.default_branch, row.id],
+            );
+            return true;
+        } catch (err) {
+            if (err && (err.status === 403 || err.status === 429)) state.refused = true;
+            return false;
+        }
+    }
+
+    /** One pass over the list: create what is missing, count what is already there, delete nothing. */
     async function run() {
-        const summary = { org: settings.org, owner: settings.owner, listed: 0, created: 0, existing: 0, failed: 0, ok: false };
+        const summary = {
+            org: settings.org, owner: settings.owner, source: null, listed: 0, created: 0, existing: 0, failed: 0,
+            skipped: { private: 0, missing: 0, invalid: 0, fork: 0, archived: 0 }, metadata_pending: 0, ok: false,
+        };
         if (!settings.org) {
             summary.off = true;
             log.log('[OpenVibe.Git] official mirrors: off (GIT_OFFICIAL_ORG is empty)');
             return summary;
         }
-        let listed;
-        try {
-            listed = await github.orgRepos(settings.org);
-        } catch (err) {
-            summary.failed = 1;
-            summary.error = String(err.message || err).slice(0, 300);
-            log.warn(`[OpenVibe.Git] official mirrors: listing ${settings.org}: ${summary.error}`);
-            log.log(`[OpenVibe.Git] official mirrors: created ${summary.created}, existing ${summary.existing}, failed ${summary.failed}`);
+        if (stopped) {
+            summary.stopped = true;
             return summary;
         }
-        summary.listed = listed.length;
-        for (const repo of listed) {
-            if (!repo || repo.fork || repo.archived || repo.private) continue;
-            const name = String(repo.name || '').toLowerCase();
+
+        // Where the list comes from: GitHub's REST API, or the network's own contracts when that is refused.
+        let listed = [];
+        let listError = null;
+        const state = { refused: false };
+        try {
+            listed = await github.orgRepos(settings.org);
+            summary.source = 'github';
+        } catch (err) {
+            listError = err;
+            summary.source = 'contracts';
+            if (err && (err.status === 403 || err.status === 429)) state.refused = true;
+            try {
+                listed = listContracts();
+            } catch (listErr) {
+                listed = [];
+                summary.contract_error = String(listErr.message || listErr).slice(0, 200);
+            }
+            summary.listing_error = String(err.message || err).slice(0, 300);
+            log.warn(`[OpenVibe.Git] official mirrors: GitHub listing ${settings.org} refused (${summary.listing_error}); `
+                + `using ${listed.length} repositories from the contracts`);
+        }
+        summary.listed = Array.isArray(listed) ? listed.length : 0;
+        if (!summary.listed) {
+            summary.failed = 1;
+            summary.error = listError ? String(listError.message || listError).slice(0, 300) : 'no repositories listed';
+            log.log(`[OpenVibe.Git] official mirrors: source ${summary.source}, created 0, existing 0, failed 1`);
+            return summary;
+        }
+
+        async function one(repo) {
+            if (stopped || !repo) return;
+            if (repo.fork) { summary.skipped.fork += 1; return; }
+            if (repo.archived) { summary.skipped.archived += 1; return; }
+            if (repo.private) {
+                summary.skipped.private += 1;
+                log.warn(`[OpenVibe.Git] official mirrors: ${repo.full_name || repo.name} is private (skipped)`);
+                return;
+            }
+            const full = String(repo.full_name || '');
+            const name = String(repo.name || full.split('/')[1] || '').toLowerCase();
             if (!validName(name)) {
-                summary.failed += 1;
-                log.warn(`[OpenVibe.Git] official mirrors: ${repo.full_name || repo.name} is not a valid repository name here (${name})`);
-                continue;
+                summary.skipped.invalid += 1;
+                log.warn(`[OpenVibe.Git] official mirrors: ${full || name} is not a valid repository name here (${name})`);
+                return;
             }
-            if (await repos.getRow(settings.owner, name)) {
+            const existing = await repos.getRow(settings.owner, name);
+            if (existing) {
                 summary.existing += 1;
-                continue;
+                if (existing.mirror_meta_state === 'pending') await fillPending(existing, state);
+                return;
             }
-            // repos.create checks the GitHub URL, reads the metadata and clones with config.mirrors.timeoutMs.
+
+            // Public and existing through git's own protocol: no REST quota, and the default branch comes with it.
+            const info = await github.probe(full).catch(() => null);
+            if (info && info.state === 'private') {
+                summary.skipped.private += 1;
+                log.warn(`[OpenVibe.Git] official mirrors: ${full} is private (skipped)`);
+                return;
+            }
+            if (info && info.state === 'missing') {
+                summary.skipped.missing += 1;
+                log.warn(`[OpenVibe.Git] official mirrors: ${full} does not exist (skipped)`);
+                return;
+            }
+            if (info && info.state === 'invalid') {
+                summary.skipped.invalid += 1;
+                log.warn(`[OpenVibe.Git] official mirrors: ${full} is not a valid GitHub repository name (skipped)`);
+                return;
+            }
+            if (stopped) return;
+
+            // repos.create checks the GitHub URL, reads the metadata (pending when refused) and clones with the
+            // mirror timeout. The probe's answer saves the second ls-refs and names the default branch.
             try {
                 await repos.create({
                     actor: { username: settings.owner, subject: null },
                     name,
-                    mirrorUrl: repo.clone_url || `https://github.com/${settings.org}/${repo.name}.git`,
+                    mirrorUrl: repo.clone_url || `https://github.com/${full}.git`,
+                    mirrorInfo: info,
                 });
                 summary.created += 1;
             } catch (err) {
-                if (err && err.status === 409) { summary.existing += 1; continue; }
+                if (err && err.status === 409) { summary.existing += 1; return; }
                 summary.failed += 1;
-                log.warn(`[OpenVibe.Git] official mirror ${settings.org}/${repo.name}: ${String(err.message || err).slice(0, 300)}`);
+                log.warn(`[OpenVibe.Git] official mirror ${full || name}: ${String(err.message || err).slice(0, 300)}`);
             }
         }
+
+        // A few clones at once, not the whole list: GitHub sees a handful of connections and the host stays usable.
+        const limit = Math.max(1, Math.min(8, Number(settings.concurrency) || 3));
+        let cursor = 0;
+        const workers = Array.from({ length: Math.min(limit, summary.listed) }, async () => {
+            while (!stopped) {
+                const index = cursor;
+                cursor += 1;
+                if (index >= summary.listed) return;
+                await one(listed[index]);
+            }
+        });
+        await Promise.all(workers);
+
+        if (stopped) {
+            summary.stopped = true;
+        } else {
+            summary.metadata_pending = Number(await store.value(
+                "SELECT count(*)::int FROM git_repos WHERE mirror_url IS NOT NULL AND mirror_meta_state = 'pending'",
+            )) || 0;
+        }
         summary.ok = summary.failed === 0;
-        log.log(`[OpenVibe.Git] official mirrors: created ${summary.created}, existing ${summary.existing}, failed ${summary.failed}`);
+        const skipped = summary.skipped;
+        const skippedTotal = skipped.private + skipped.missing + skipped.invalid + skipped.fork + skipped.archived;
+        log.log(`[OpenVibe.Git] official mirrors: source ${summary.source}, created ${summary.created}, existing ${summary.existing}, `
+            + `skipped ${skippedTotal} (private ${skipped.private}, missing ${skipped.missing}, invalid ${skipped.invalid}, `
+            + `fork ${skipped.fork}, archived ${skipped.archived}), failed ${summary.failed}`
+            + (summary.metadata_pending ? `, metadata pending ${summary.metadata_pending}` : ''));
         return summary;
     }
 
     /** Run when due. The in-process guard keeps the hourly tick from stacking runs; the state row spans restarts. */
     async function tick() {
         if (!enabled()) return { ran: false, reason: config.drill ? 'drill' : 'off' };
+        if (stopped) return { ran: false, reason: 'stopped' };
         if (running) return { ran: false, reason: 'running' };
         running = true;
         try {
@@ -115,7 +228,7 @@ function createOfficialMirrors({ store, repos, config, github, log = console, cl
             const dueAt = (last.at || 0) + settings.syncMs;
             if (last.at && now() < dueAt) return { ran: false, reason: 'not due', due_at: new Date(dueAt).toISOString() };
             const summary = await run();
-            await recordRun(summary);
+            if (!summary.stopped) await recordRun(summary);
             return { ran: true, ...summary };
         } finally {
             running = false;
@@ -133,6 +246,7 @@ function createOfficialMirrors({ store, repos, config, github, log = console, cl
     }
 
     function stop() {
+        stopped = true;
         if (first) clearTimeout(first);
         if (timer) clearInterval(timer);
         first = null;

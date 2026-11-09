@@ -44,7 +44,11 @@ async function boot(opts = {}) {
     const testdb = await require('./db').testDb();
     const store = createStore(testdb.db, { now: opts.now });
     const log = { log: () => {}, warn: (...a) => captured.push(a.map(String).join(' ')), error: (...a) => captured.push(a.map(String).join(' ')), info: () => {} };
-    const { app, ctx } = await createApp({ config, store, log, reviewServices: opts.reviewServices, fetchImpl: typeof opts.fetchImpl === 'function' ? opts.fetchImpl : undefined });
+    const { app, ctx } = await createApp({
+        config, store, log, reviewServices: opts.reviewServices,
+        fetchImpl: typeof opts.fetchImpl === 'function' ? opts.fetchImpl : undefined,
+        lookup: opts.lookup, guard: opts.guard,
+    });
     const server = await new Promise((resolve) => { const s = http.createServer(app); s.listen(0, '127.0.0.1', () => resolve(s)); });
     const port = server.address().port;
     const base = `http://127.0.0.1:${port}`;

@@ -13,6 +13,13 @@ const response = (body, link = null) => ({
     json: async () => body,
 });
 
+// git's protocol v2 answer to ls-refs for HEAD: one pkt-line naming the default branch, then a flush.
+const pkt = (text) => (Buffer.byteLength(text) + 4).toString(16).padStart(4, '0') + text;
+const publicRefs = (branch = 'main') => ({
+    ok: true, status: 200, headers: { get: () => null }, json: async () => ({}),
+    text: async () => pkt(`${'a'.repeat(40)} HEAD symref-target:refs/heads/${branch}\n`) + '0000',
+});
+
 const LISTING = {
     1: [
         { name: 'OpenVibe.Live', full_name: 'OpenVibers/OpenVibe.Live', fork: false, archived: false, private: false, clone_url: 'https://github.com/OpenVibers/OpenVibe.Live.git' },
@@ -28,9 +35,15 @@ const LISTING = {
 (async () => {
     let nowMs = Date.now();
     const calls = [];
+    const probes = [];
     const fetchImpl = async (url, opts = {}) => {
         calls.push({ url: String(url), authorization: opts.headers && opts.headers.authorization });
         const target = new URL(url);
+        // git's own ls-refs: no REST quota, and the answer names the default branch.
+        if (target.hostname === 'github.com' && target.pathname.endsWith('/git-upload-pack')) {
+            probes.push(target.pathname);
+            return publicRefs('main');
+        }
         if (target.pathname === '/orgs/OpenVibers/repos') {
             const page = Number(target.searchParams.get('page') || '1');
             const link = page === 1 ? '<https://api.github.com/orgs/OpenVibers/repos?type=public&per_page=100&page=2>; rel="next"' : null;
@@ -49,6 +62,7 @@ const LISTING = {
     const t = await boot({
         env: { GIT_DRILL: '', GIT_OFFICIAL_ORG: '', GIT_GITHUB_TOKEN: 'test-token' },
         fetchImpl,
+        lookup: (host, options, callback) => callback(null, [{ address: '140.82.112.3', family: 4 }]),
         now: () => nowMs,
     });
     const clones = [];
@@ -72,10 +86,15 @@ const LISTING = {
         result = await job.tick();
         assert.equal(result.ran, true);
         assert.equal(result.listed, 5);
+        assert.equal(result.source, 'github');
         assert.equal(result.created, 2);
         assert.equal(result.existing, 0);
-        assert.equal(result.failed, 1);
+        assert.equal(result.failed, 0);
+        assert.equal(result.skipped.invalid, 1);
+        assert.equal(result.skipped.fork, 1);
+        assert.equal(result.skipped.archived, 1);
         assert.deepEqual(clones.sort(), ['openvibers/openvibe.contracts', 'openvibers/openvibe.live']);
+        assert.deepEqual(probes.sort(), ['/OpenVibers/OpenVibe.Contracts.git/git-upload-pack', '/OpenVibers/OpenVibe.Live.git/git-upload-pack']);
         assert.ok(calls.some((c) => c.url.includes('page=2')), 'page 2 was read');
         assert.ok(calls.filter((c) => c.url.includes('/orgs/')).every((c) => c.authorization === 'Bearer test-token'));
 
@@ -87,9 +106,9 @@ const LISTING = {
         assert.ok(rows.every((r) => r.mirror_state === 'ready'));
         assert.equal(Number(await t.store.value("SELECT count(*)::int FROM git_repos WHERE name IN ('openvibe.fork', 'openvibe.archived')")), 0);
 
-        const summary = logs.filter((l) => l.includes('official mirrors: created'));
+        const summary = logs.filter((l) => l.includes('official mirrors: source'));
         assert.equal(summary.length, 1);
-        assert.match(summary[0], /created 2, existing 0, failed 1/);
+        assert.match(summary[0], /source github, created 2, existing 0, skipped 3 \(private 0, missing 0, invalid 1, fork 1, archived 1\), failed 0/);
 
         // Not due right away: no second listing and no second clone.
         calls.length = 0;
@@ -104,7 +123,8 @@ const LISTING = {
         assert.equal(result.ran, true);
         assert.equal(result.created, 0);
         assert.equal(result.existing, 2);
-        assert.equal(result.failed, 1);
+        assert.equal(result.failed, 0);
+        assert.equal(result.skipped.invalid, 1);
         assert.equal(clones.length, 2);
         assert.equal(Number(await t.store.value("SELECT count(*)::int FROM git_repos WHERE owner_username = 'openvibers'")), 2);
         const state = await job.lastRun();
