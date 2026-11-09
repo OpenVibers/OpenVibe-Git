@@ -20,7 +20,7 @@ function createLifecycle({ server, exit, signals, ctx } = {}) {
         exit,
         signals,
         deadlineMs: 10_000,
-        stop: [() => (mirrors ? mirrors.stop() : undefined), () => (official ? official.stop() : undefined)],
+        stop: [() => ctx.reviews && ctx.reviews.stop(), () => (mirrors ? mirrors.stop() : undefined), () => (official ? official.stop() : undefined)],
         close: [() => catFiles.close(), () => (store ? store.close() : undefined)],
     });
 }
@@ -31,6 +31,7 @@ async function start() {
     if (config.mirrors.pollMs) ctx.mirrors.start();
     // Due-based and off unless GIT_OFFICIAL_ORG is set: the first check is shortly after boot, never in this path.
     ctx.official.start();
+    ctx.reviews.start();
     const server = app.listen(config.port, config.host, () => {
         console.log(`[OpenVibe.Git] ${config.nodeEnv} on http://${config.host}:${config.port} → ${config.baseUrl} (release ${release.release})`);
     });

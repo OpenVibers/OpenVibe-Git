@@ -22,7 +22,10 @@ const { validName } = require('./git/refs');
 
 const STATE_ID = 'official-mirrors';
 const FIRST_RUN_MS = 30_000;             // shortly after boot, not in the boot path
-const TICK_MS = 60 * 60_000;             // how often the due check is asked
+// How often the due check is asked: a fifth of the sync interval (at most 15 minutes), so a run due a second after a
+// tick waits minutes, not a whole interval (11-09: the hourly tick fired 1 s before each due time and skipped every
+// other hour, while the host's GitHub quota had come back).
+const TICK_MS = 15 * 60_000;
 
 function createOfficialMirrors({ store, repos, config, github, log = console, clock = null }) {
     const settings = config.official;
@@ -124,7 +127,7 @@ function createOfficialMirrors({ store, repos, config, github, log = console, cl
         const check = () => tick().catch((err) => log.warn('[OpenVibe.Git] official mirrors:', err.message));
         first = setTimeout(() => { first = null; check(); }, FIRST_RUN_MS);
         first.unref();
-        timer = setInterval(check, Math.max(60_000, Math.min(TICK_MS, settings.syncMs)));
+        timer = setInterval(check, Math.max(60_000, Math.min(TICK_MS, Math.round(settings.syncMs / 5))));
         timer.unref();
         return true;
     }
