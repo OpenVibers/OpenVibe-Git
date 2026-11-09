@@ -1,0 +1,19 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {createReviewServices}=require('../server/review-services');
+(async()=>{
+ const calls=[];
+ const client={json:async(o)=>{calls.push(o);if(o.path.endsWith('/resolve'))return {thread:{id:'cth_test'}};if(o.path==='/api/v1/tasks')return {tasks:[{name:'ai.generate'}]};if(o.path==='/api/v1/runs')return {run:{id:'run_1',status:'succeeded',output:{text:'Summary: test. Risk: limited.'},provenance:{model:'local/model'}}};return {};}};
+ const services=createReviewServices({oauth:{clientId:'test',clientSecret:'fixture'},networkInternalUrl:'http://127.0.0.1:1'},undefined,client);
+ await services.thread('change','chg_opaque');
+ assert.deepEqual(calls[0].json,{ref:{service:'git',type:'change',id:'chg_opaque'}});
+ assert.equal(calls[1].json.visibility,'hidden');assert.equal(calls[1].headers['X-OV-Staff'],'1');
+ await services.comment('cth_test','line comment','usr_fixture');assert.equal(calls.at(-1).headers['X-OV-Subject'],'usr_fixture');
+ const result=await services.summary({model:'local/model',text:'diff',key:'unique-key',subject:'usr_fixture'});
+ const request=calls.find(c=>c.path==='/api/v1/runs');assert.deepEqual(request.json.choice,{model:'local/model',source:'openvibe'});assert.equal(request.json.on_behalf_of,'usr_fixture');assert.equal(result.model,'local/model');
+ const unavailable=createReviewServices({oauth:{clientId:'test',clientSecret:'fixture'}},undefined,{json:async()=>({tasks:[]})});
+ await assert.rejects(unavailable.summary({model:'x'}),e=>e.status===503);
+ const parsed=require('../server/git/review').diffLines('--- a\n+++ b\n@@ -1 +1 @@\n---value\n+++value');
+ assert.equal(parsed[3].old_line,1);assert.equal(parsed[4].new_line,1);
+ console.log('review services: hidden thread, actor delegation, selected model and unavailable choices passed');
+})().catch(e=>{console.error(e);process.exit(1);});

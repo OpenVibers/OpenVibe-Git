@@ -120,6 +120,9 @@ function repoTabs(row, active, ref) {
     const base = `/${row.owner_username}/${row.name}`;
     const tabs = [
         ['code', 'Code', base],
+        ['changes', 'Changes', `${base}/changes`],
+        ['issues', 'Issues', `${base}/issues`],
+        ['search', 'Search code', `${base}/search`],
         ['commits', 'Commits', `${base}/commits`],
         ['branches', 'Branches', `${base}/branches`],
         ['tags', 'Tags', `${base}/tags`],
@@ -291,7 +294,7 @@ function filePage({ row, ref, path: filePath, blob, crumbs = [], plain = false }
   <p class="git-crumb"><a href="${base}">${esc(row.full_name || `${row.owner_username}/${row.name}`)}</a> ${icon('chevron')} ${crumbs.map((c, i) => `${i ? icon('chevron') : ''}<a href="${base}/blob${qs({ ref, path: c.path })}">${esc(c.name)}</a>`).join('')}</p>
   <h1>${esc(filePath.split('/').pop())}</h1>
   <p class="git-file-meta"><span class="git-chip">${esc(ref)}</span> ${esc(blob.size != null ? bytes(blob.size) : '')} ${blob.text ? `· ${String(blob.text).split('\n').length} lines` : ''} · ${esc(lang)}</p>
-  <div class="git-actions"><a class="ovk-btn ovk-btn--ghost" href="${raw}">${icon('download')} Raw</a><a class="ovk-btn ovk-btn--ghost" href="${hist}">${icon('clock')} History</a><a class="ovk-btn ovk-btn--ghost" href="${base}">${icon('back')} Repository</a></div>
+  <div class="git-actions"><a class="ovk-btn ovk-btn--ghost" href="${raw}">${icon('download')} Raw</a><a class="ovk-btn ovk-btn--ghost" href="${hist}">${icon('clock')} History</a><a class="ovk-btn ovk-btn--ghost" href="${base}/blame/${encodeURIComponent(ref)}/${filePath.split('/').map(encodeURIComponent).join('/')}">Blame</a><a class="ovk-btn ovk-btn--ghost" href="${base}">${icon('back')} Repository</a></div>
 </header>
 ${body}
 </div>`;

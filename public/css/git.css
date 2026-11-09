@@ -370,3 +370,26 @@
 .git-md h1 { font-size: 1.65rem; padding-bottom: .3em; border-bottom: 1px solid var(--border); }
 .git-md h2 { font-size: 1.3rem; padding-bottom: .25em; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
 .git-md h3 { font-size: 1.08rem; }
+
+/* G2: all review sections remain in the document flow. */
+.git-review { max-width: 1180px; margin: auto; padding: 24px 16px; min-width: 0; }
+.git-review section { margin-block: 28px; }
+.git-review .git-actions { display:flex; flex-wrap:wrap; gap:16px; margin-block:16px; }
+.git-review a, .git-review h1, .git-review h3, .git-review p { overflow-wrap:anywhere; }
+.git-review-form { display:grid; gap:12px; max-width:640px; margin-block:16px; }
+.git-review-form label { display:grid; gap:6px; }
+.git-review-form input, .git-review-form textarea, .git-review-form select { box-sizing:border-box; width:100%; min-width:0; min-height:44px; padding:10px; border:1px solid var(--border); border-radius:6px; background:var(--bg-input); color:inherit; font:inherit; }
+.git-review button, .git-review .git-actions a { min-height:44px; }
+.git-review-list { list-style:none; padding:0; }
+.git-review-list li { display:flex; flex-wrap:wrap; gap:12px; padding:16px 0; border-bottom:1px solid var(--border); }
+.git-review-file, .git-review-comment { border:1px solid var(--border); border-radius:8px; margin-block:16px; padding:12px; min-width:0; }
+.git-unified { font-size:12px; min-width:0; }
+.git-review .git-diff-line { min-width:0; white-space:normal; gap:0; padding:0; display:grid; grid-template-columns:3em 3em minmax(0,1fr); line-height:1.6; }
+.git-diff-line span { text-align:right; padding-right:8px; opacity:.7; }
+.git-diff-line code, .git-blame-line code { white-space:pre-wrap; overflow-wrap:anywhere; min-width:0; }
+.git-diff-add { background:rgba(0,150,70,.13); }
+.git-diff-remove { background:rgba(220,50,50,.13); }
+.git-diff-hunk { background:rgba(80,120,220,.14); }
+.git-blame-line { display:grid; grid-template-columns:5em 8em 3em minmax(0,1fr); gap:8px; }
+.git-review-results { white-space:pre-wrap; overflow-wrap:anywhere; }
+@media(max-width:600px) { .git-blame-line { grid-template-columns:5em minmax(0,1fr); } .git-review { padding:16px 12px; } }
