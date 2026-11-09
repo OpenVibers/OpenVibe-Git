@@ -18,6 +18,7 @@ function load(env = process.env) {
     const port = int(env.PORT, 5270);
     const baseUrl = trim(env.BASE_URL || (isProduction ? 'https://git.openvibe.codes' : `http://localhost:${port}`));
     const networkUrl = trim(env.OV_NETWORK_URL || 'https://openvibe.network');
+    const officialOwners = list(env.GIT_OFFICIAL_OWNERS || 'openvibers').map((o) => o.toLowerCase());
 
     return {
         service: 'git',
@@ -79,7 +80,15 @@ function load(env = process.env) {
         },
 
         // Repositories under these owners are "official" (the OpenVibers projects).
-        officialOwners: list(env.GIT_OFFICIAL_OWNERS || 'openvibers'),
+        officialOwners,
+
+        // The official mirrors seed (server/official.js): the GitHub organisation to mirror, the OpenVibe owner
+        // the mirrors are created under, and how often a run is due. An empty GIT_OFFICIAL_ORG turns it off.
+        official: {
+            org: trim(env.GIT_OFFICIAL_ORG || ''),
+            owner: String(env.GIT_OFFICIAL_OWNER || officialOwners[0] || 'openvibers').trim().toLowerCase(),
+            syncMs: Math.max(60_000, int(env.GIT_OFFICIAL_SYNC_MS, 6 * 60 * 60 * 1000)),
+        },
 
         apiRateLimitPerMinute: Math.max(1, int(env.GIT_API_RATE_LIMIT_PER_MIN, 180)),
         pageRateLimitPerMinute: Math.max(1, int(env.GIT_PAGE_RATE_LIMIT_PER_MIN, 300)),
