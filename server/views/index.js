@@ -29,7 +29,6 @@ function home({ viewer, stats, trending = [], activity = [], official = [], base
     return `<div class="git-home">
 <section class="git-hero">
   <div class="git-hero-copy">
-    <p class="git-kicker">git.openvibe.codes</p>
     <h1>Git for OpenVibe</h1>
     <p class="git-lede">Host code with your OpenVibe account, browse it, mirror GitHub, and clone it to your computer with Link. Every push is git's own; every page is ours.</p>
     <div class="git-actions">
@@ -263,7 +262,7 @@ ${repoHead({ row, viewer, starred, watching, forkOf })}
 }
 
 // ── File, commits, commit ────────────────────────────────────
-function filePage({ row, ref, path: filePath, blob, crumbs = [] }) {
+function filePage({ row, ref, path: filePath, blob, crumbs = [], plain = false }) {
     const base = `/${row.owner_username}/${row.name}`;
     const lang = resolveLanguage(filePath.split('.').pop());
     const raw = `${base}/raw${qs({ ref, path: filePath })}`;
@@ -273,9 +272,15 @@ function filePage({ row, ref, path: filePath, blob, crumbs = [] }) {
         body = `<p class="git-empty">A binary file (${esc(bytes(blob.size))}). <a href="${raw}">Download it</a>.</p>`;
     } else if (blob.truncated) {
         body = `<p class="git-notice">This file is ${esc(bytes(blob.size))}; the page shows its beginning. <a href="${raw}">Download the whole file</a>.</p>`;
+    } else if (!plain && /\.(md|markdown)$/i.test(filePath)) {
+        // A Markdown file reads as the document it is (as a README does on the repository page); its code is one tap away.
+        const here = `${base}/blob`;
+        body = `<section class="git-readme git-doc"><div class="git-readme-head"><nav class="git-view" aria-label="View"><a aria-current="page" href="${here}${qs({ ref, path: filePath })}">${icon('book')} Preview</a><a href="${here}${qs({ ref, path: filePath, plain: '1' })}">${icon('code')} Code</a></nav></div><div class="git-md">${renderMarkdown(blob.text || '')}</div></section>`;
     } else {
         const lines = String(blob.text || '').split('\n');
-        body = `<div class="git-code"><table class="git-code-table"><tbody>${lines.map((line, i) => {
+        const toggle = /\.(md|markdown)$/i.test(filePath)
+            ? `<nav class="git-view git-view--bar" aria-label="View"><a href="${base}/blob${qs({ ref, path: filePath })}">${icon('book')} Preview</a><a aria-current="page" href="${base}/blob${qs({ ref, path: filePath, plain: '1' })}">${icon('code')} Code</a></nav>` : '';
+        body = `${toggle}<div class="git-code"><table class="git-code-table"><tbody>${lines.map((line, i) => {
             const n = i + 1;
             const h = highlight(line, lang);
             return `<tr id="L${n}"><td class="git-ln"><a href="#L${n}" aria-label="Line ${n}">${n}</a></td><td class="git-code-line">${h.html || ' '}</td></tr>`;

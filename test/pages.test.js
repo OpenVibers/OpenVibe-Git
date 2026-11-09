@@ -29,7 +29,12 @@ const { boot } = require('./helpers/boot');
         assert.match(page.text, /SoftwareSourceCode/);
         assert.match(page.text, /<h1>sam<span>\/<\/span>phone-first<\/h1>/);
 
-        const file = await t.get('/sam/phone-first/blob?ref=main&path=README.md');
+        // A Markdown file reads as a document; its code (with line links) is one tap away.
+        const mdDoc = await t.get('/sam/phone-first/blob?ref=main&path=README.md');
+        assert.equal(mdDoc.status, 200);
+        assert.match(mdDoc.text, /class="git-md"/);
+        assert.match(mdDoc.text, /aria-current="page"[^>]*>[\s\S]{0,200}Preview/);
+        const file = await t.get('/sam/phone-first/blob?ref=main&path=README.md&plain=1');
         assert.equal(file.status, 200);
         assert.match(file.text, /id="L1"/);
         assert.match(file.text, /href="#L1"/);

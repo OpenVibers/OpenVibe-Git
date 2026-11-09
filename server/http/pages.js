@@ -189,7 +189,7 @@ function createPageRoutes(ctx) {
             blob = { size: whole.size, binary: true, truncated: whole.truncated, text: null };
         }
         const crumbs = pathAt.split('/').map((seg, i, all) => ({ name: seg, path: all.slice(0, i + 1).join('/') }));
-        return page(req, res, views.filePage({ row, ref, path: pathAt, blob, crumbs }), meta(req, row, { title: `${pathAt} at ${ref}` }));
+        return page(req, res, views.filePage({ row, ref, path: pathAt, blob, crumbs, plain: req.query.plain === '1' }), meta(req, row, { title: `${pathAt} at ${ref}` }));
     }));
 
     r.get('/:owner/:name/raw', h(async (req, res) => {

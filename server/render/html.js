@@ -39,7 +39,11 @@ function spark(rows, key = 'views', { height = 34, label = 'activity' } = {}) {
 
 /** The language bar: a stack of percentages. */
 function languageBar(languages = {}) {
-    const entries = Object.entries(languages).slice(0, 6);
+    // The four largest by share, then the rest as "Other": a legend of "YAML 0%" and "Shell 0.1%" was noise (11-09).
+    const all = Object.entries(languages).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+    const top = all.filter(([, v]) => v >= 1).slice(0, 4);
+    const rest = Math.round((100 - top.reduce((n, [, v]) => n + v, 0)) * 10) / 10;
+    const entries = rest >= 0.5 && all.length > top.length ? [...top, ['Other', rest]] : top;
     if (!entries.length) return '';
     const colours = ['var(--git-l1)', 'var(--git-l2)', 'var(--git-l3)', 'var(--git-l4)', 'var(--git-l5)', 'var(--git-l6)'];
     return `<div class="git-langbar" role="img" aria-label="${esc(entries.map(([k, v]) => `${k} ${v}%`).join(', '))}">${entries.map(([k, v], i) => `<span style="width:${Math.min(100, v)}%;background:${colours[i]}"></span>`).join('')}</div>
