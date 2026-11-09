@@ -25,12 +25,24 @@ The Forgejo cut-over keeps the mirror list and nothing else, so the service rebu
 `GIT_OFFICIAL_ORG` is set, a due-based background job mirrors that organisation's public repositories under
 `GIT_OFFICIAL_OWNER` (by default the first of `GIT_OFFICIAL_OWNERS`, `openvibers`):
 
-- it lists every page of the organisation through GitHub's REST API, with `GIT_GITHUB_TOKEN` when set;
+- it lists every page of the organisation through GitHub's REST API, with `GIT_GITHUB_TOKEN` when set. When that
+  listing is refused for any reason (403/429/5xx/network — the host shares GitHub's 60 anonymous calls an hour), it
+  falls back to the repositories named in `openvibe-contracts` (`manifests/services/*.json` and
+  `manifests/repositories/*.json`), deduplicated, and the run says which list it used;
+- each candidate is checked as public and existing through git's protocol (protocol-v2 `ls-refs` over
+  `github.com`, which spends no REST quota); private and missing repositories are skipped and counted with the
+  reason, and the answer names the default branch;
 - it skips forks and archived repositories, and creates each missing repository as a GitHub mirror through the
-  normal repository code, one at a time and with the mirror timeout;
+  normal repository code, a few clones at a time (`GIT_OFFICIAL_CONCURRENCY`, default 3) and with the mirror
+  timeout. When the API refuses the metadata for quota, the clone still runs and the card is marked pending; a
+  later run fills the description, topics and default branch;
 - names follow this service's rule, so `OpenVibe.Live` becomes `openvibe.live`; a name that cannot be used here is
-  logged and counted as failed;
-- it never deletes anything, and one log line per run reports created, existing and failed.
+  skipped and counted as invalid;
+- it never deletes anything, and one log line per run reports the list's source, created, existing, skipped (with
+  each reason) and failed.
+
+The ten-minute mirror poll reads the remote's refs with `git ls-remote` (also `ls-refs`, also no REST quota) and
+fetches only when something changed.
 
 A run is due when `GIT_OFFICIAL_SYNC_MS` (default six hours) has passed since the last finished run; the last run
 is a row in the database, so a deploy does not reset the interval. The first check is shortly after boot and the
@@ -42,7 +54,8 @@ An empty `GIT_OFFICIAL_ORG` turns the job off, and so does drill mode.
 - `server/git/` — repositories on disk: creation, refs, trees, blobs, commits, diffs, bunches, and `http-backend`.
 - `server/http/` — the pages and `/api/v1`.
 - `server/mirror.js` — GitHub mirrors: the push webhook, the ten-minute poll, and the push mirror back.
-- `server/official.js` — the due-based seed of the official mirrors from a GitHub organisation.
+- `server/official.js` — the due-based seed of the official mirrors from a GitHub organisation or the contracts.
+- `server/contracts.js` — the repository list named by openvibe-contracts when GitHub's listing is refused.
 - `server/insights.js` — views, unique visitors, clones, stars and commits per week.
 - `contracts` — `git.repo@1`, `git.commit@1`, `git.tree@1`, `git.insights@1` (OpenVibe.Contracts).
 - `deploy/` — the systemd unit and the nginx vhost for `git.openvibe.codes`.

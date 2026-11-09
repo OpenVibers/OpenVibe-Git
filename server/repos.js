@@ -95,7 +95,7 @@ function createRepos({ store, config, git, github, insights, log = console }) {
         } catch (err) { log.warn('[OpenVibe.Git] audit not recorded:', err.message); }
     }
 
-    async function create({ actor, name, description = '', visibility = 'public', topics = [], starter = 'empty', mirrorUrl = null }, { address = null } = {}) {
+    async function create({ actor, name, description = '', visibility = 'public', topics = [], starter = 'empty', mirrorUrl = null, mirrorInfo = null }, { address = null } = {}) {
         const owner = String(actor.username || '').toLowerCase();
         const repoName = String(name || '').toLowerCase();
         if (!validName(owner)) throw Object.assign(new Error('A signed-in OpenVibe username is required.'), { status: 403 });
@@ -126,13 +126,30 @@ function createRepos({ store, config, git, github, insights, log = console }) {
         const row = await byId(id);
         try {
             if (mirror) {
-                let meta = { description: '', default_branch: 'main', private: false };
-                try { meta = await github.meta(mirror.full_name); } catch { /* the clone still works without the card */ }
-                if (meta.private) throw Object.assign(new Error('That GitHub repository is private.'), { status: 422 });
+                let meta = null;
+                let metaPending = false;
+                try {
+                    meta = await github.meta(mirror.full_name);
+                } catch (err) {
+                    // Quota refused (403/429): the clone needs none, so make the mirror now and fill the card later.
+                    metaPending = Boolean(err && (err.status === 403 || err.status === 429));
+                }
+                if (meta && meta.private) throw Object.assign(new Error('That GitHub repository is private.'), { status: 422 });
+                // The default branch comes from the REST metadata, or from git's own ls-refs when REST is out.
+                let defaultBranch = meta && meta.default_branch ? meta.default_branch : 'main';
+                if (!meta) {
+                    const info = mirrorInfo || await github.probe(mirror.full_name).catch(() => null);
+                    if (info && info.state === 'private') throw Object.assign(new Error('That GitHub repository is private.'), { status: 422 });
+                    if (info && info.state === 'missing') throw Object.assign(new Error('That GitHub repository does not exist.'), { status: 422 });
+                    if (info && info.default_branch) defaultBranch = info.default_branch;
+                }
+                const metaTopics = meta && Array.isArray(meta.topics) ? meta.topics : [];
                 await git.cloneMirror(owner, repoName, mirror.clone_url, { timeoutMs: config.mirrors.timeoutMs });
                 await store.execute(
-                    `UPDATE git_repos SET description = ?, default_branch = ?, mirror_state = 'ready', mirror_last_synced_at = now(), pushed_at = now(), updated_at = now() WHERE id = ?`,
-                    [description || meta.description || '', meta.default_branch || 'main', id],
+                    `UPDATE git_repos SET description = ?, default_branch = ?, topics = ?, mirror_state = 'ready',
+                         mirror_meta_state = ?, mirror_last_synced_at = now(), pushed_at = now(), updated_at = now() WHERE id = ?`,
+                    [description || (meta && meta.description) || '', defaultBranch, JSON.stringify(topics.length ? topics : metaTopics),
+                        metaPending ? 'pending' : 'ready', id],
                 );
             } else {
                 const files = starterFiles(starter, { full: `${owner}/${repoName}` });

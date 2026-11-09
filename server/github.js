@@ -9,9 +9,35 @@
  * api.github.com; without one the public limit applies.
  */
 const crypto = require('node:crypto');
+const { assertPublicUrl } = require('openvibe-shared/egress');
 
 const GITHUB_HOSTS = new Set(['github.com', 'www.github.com']);
 const FULL_RE = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+const GITHUB_WEB = 'https://github.com';
+
+// ls-refs for HEAD in git's protocol v2, with symrefs so the answer names the default branch. Each pkt-line carries
+// its own length in hex, four bytes included; 0001 is the delimiter between the command and its arguments.
+const pktLine = (text) => (Buffer.byteLength(text, 'utf8') + 4).toString(16).padStart(4, '0') + text;
+const LS_REFS_HEAD = pktLine('command=ls-refs\n') + '0001' + pktLine('symrefs\n') + pktLine('ref-prefix HEAD\n') + '0000';
+
+/** The refs in an ls-refs answer: [{ sha, ref, attrs }]. Lengths, delimiters and flushes are skipped. */
+function parseRefs(text) {
+    const refs = [];
+    const body = String(text || '');
+    let i = 0;
+    while (i + 4 <= body.length) {
+        const size = parseInt(body.slice(i, i + 4), 16);
+        if (size === 0 || size === 1 || size === 2) { i += 4; continue; }
+        if (!Number.isFinite(size) || size < 4 || i + size > body.length) break;
+        const line = body.slice(i + 4, i + size).replace(/\n$/, '');
+        i += size;
+        if (!line) continue;
+        const parts = line.split(' ');
+        if (parts.length < 2) continue;
+        refs.push({ sha: parts[0], ref: parts[1], attrs: parts.slice(2) });
+    }
+    return refs;
+}
 
 /** A public GitHub repository URL → { full_name, clone_url }, or null. No credentials, no other host. */
 function parseGithubUrl(input) {
@@ -27,9 +53,10 @@ function parseGithubUrl(input) {
     return { full_name: `${parts[0]}/${name}`, clone_url: `https://github.com/${parts[0]}/${name}.git` };
 }
 
-function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => Date.now(), log = console }) {
+function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => Date.now(), log = console, lookup = null, guard = null }) {
     const cache = new Map();   // full_name (lower) → { at, card }
     const metaCache = new Map();
+    const probeCache = new Map();
     const headers = () => {
         const h = { accept: 'application/vnd.github+json', 'user-agent': 'openvibe-git' };
         if (config.github.token) h.authorization = `Bearer ${config.github.token}`;
@@ -85,9 +112,59 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         const meta = {
             full_name: repo.full_name, description: repo.description || '', default_branch: repo.default_branch || 'main',
             language: repo.language || null, stars: Number(repo.stargazers_count) || 0, private: !!repo.private,
+            topics: Array.isArray(repo.topics) ? repo.topics.map(String).slice(0, 20) : [],
         };
         metaCache.set(key, { at: now(), meta });
         return meta;
+    }
+
+    /**
+     * Whether a GitHub repository is public, and its default branch, through git's own protocol: a protocol-v2
+     * ls-refs POST needs no REST quota (git clone and fetch need none either). GitHub answers 401 for a private
+     * repository and 404 for a missing one; both are skipped by the caller. Through the egress guard like every
+     * other connection to github.com.
+     */
+    async function probe(full) {
+        const name = String(full || '');
+        if (!FULL_RE.test(name)) return { state: 'invalid', default_branch: null };
+        const key = name.toLowerCase();
+        const hit = probeCache.get(key);
+        if (hit && now() - hit.at < 60_000) return hit.value;
+        const url = `${GITHUB_WEB}/${name}.git/git-upload-pack`;
+        let res;
+        try {
+            if (guard) await guard(url);
+            else await assertPublicUrl(url, lookup ? { lookup } : undefined);
+            res = await fetchImpl(url, {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/x-git-upload-pack-request',
+                    accept: 'application/x-git-upload-pack-result',
+                    'git-protocol': 'version=2',
+                    'accept-encoding': 'identity',
+                    'user-agent': 'openvibe-git',
+                },
+                body: LS_REFS_HEAD,
+                signal: AbortSignal.timeout(8000),
+            });
+        } catch (err) {
+            return { state: 'unknown', default_branch: null, error: String(err.message || err).slice(0, 200) };
+        }
+        let value;
+        if (res.status === 401) value = { state: 'private', default_branch: null };
+        else if (res.status === 404) value = { state: 'missing', default_branch: null };
+        else if (!res.ok) value = { state: 'unknown', default_branch: null, error: `GitHub ${res.status}` };
+        else {
+            let text = '';
+            try { text = typeof res.text === 'function' ? await res.text() : ''; } catch { text = ''; }
+            const refs = parseRefs(text);
+            const head = refs.find((r) => r.ref === 'HEAD');
+            const target = head && head.attrs.map((a) => (a.startsWith('symref-target:') ? a.slice('symref-target:'.length) : '')).find(Boolean);
+            const branch = target && target.startsWith('refs/heads/') ? target.slice('refs/heads/'.length) : 'main';
+            value = { state: 'public', default_branch: branch, head: head ? head.sha : null };
+        }
+        probeCache.set(key, { at: now(), value });
+        return value;
     }
 
     /** The `rel="next"` URL in a GitHub Link header, if it stays on the configured API origin. */
@@ -138,6 +215,7 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
                 metaCache.set(String(repo.full_name).toLowerCase(), { at: now(), meta: {
                     full_name: repo.full_name, description: repo.description || '', default_branch: repo.default_branch || 'main',
                     language: repo.language || null, stars: Number(repo.stargazers_count) || 0, private: !!repo.private,
+                    topics: Array.isArray(repo.topics) ? repo.topics.map(String).slice(0, 20) : [],
                 } });
             }
             all.push(...batch);
@@ -156,7 +234,7 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return a.length === b.length && crypto.timingSafeEqual(a, b);
     }
 
-    return { parseGithubUrl, card, meta, orgRepos, signatureOk, _cache: cache };
+    return { parseGithubUrl, card, meta, probe, orgRepos, signatureOk, _cache: cache };
 }
 
-module.exports = { createGithubClient, parseGithubUrl, FULL_RE };
+module.exports = { createGithubClient, parseGithubUrl, parseRefs, pktLine, FULL_RE };

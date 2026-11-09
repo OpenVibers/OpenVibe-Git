@@ -47,7 +47,7 @@ function createApp(opts = {}) {
         const fetchImpl = opts.fetchImpl || globalThis.fetch;
         const s = opts.store || await openStore(config, { now: opts.now, log });
 
-        const github = opts.github || createGithubClient({ config, fetchImpl, now: s.now, log });
+        const github = opts.github || createGithubClient({ config, fetchImpl, now: s.now, log, lookup: opts.lookup, guard: opts.guard });
         const insights = opts.insights || createInsights({ store: s, log });
         const repos = opts.repos || createRepos({ store: s, config, git, github, insights, log });
         const mirrors = opts.mirrors || createMirrors({ store: s, repos, config, git, github, log });

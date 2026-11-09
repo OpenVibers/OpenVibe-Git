@@ -35,7 +35,15 @@ function createMirrors({ store, repos, config, git, github, log = console }) {
                 if (initial || !(await git.repoExists(row.owner_username, row.name))) {
                     await git.cloneMirror(row.owner_username, row.name, row.mirror_url, { timeoutMs: config.mirrors.timeoutMs });
                 } else {
-                    await git.fetchMirror(row.owner_username, row.name, { timeoutMs: config.mirrors.timeoutMs });
+                    // Read the remote's refs through git's own ls-refs first: an unchanged repository costs no fetch and,
+                    // like every git transport here, no GitHub REST quota.
+                    let changed = true;
+                    try {
+                        changed = await git.mirrorChanged(row.owner_username, row.name, { timeoutMs: config.mirrors.timeoutMs });
+                    } catch (err) {
+                        log.warn(`[OpenVibe.Git] mirror refs ${row.owner_username}/${row.name}: ${String(err.message || err).slice(0, 200)}`);
+                    }
+                    if (changed) await git.fetchMirror(row.owner_username, row.name, { timeoutMs: config.mirrors.timeoutMs });
                 }
                 await store.execute("UPDATE git_repos SET mirror_state = 'ready', mirror_error = NULL, mirror_last_synced_at = now(), pushed_at = now(), updated_at = now() WHERE id = ?", [row.id]);
                 await repos.refreshLanguages(row);

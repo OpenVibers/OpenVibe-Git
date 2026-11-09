@@ -439,6 +439,41 @@ async function fetchMirror(owner, name, { timeoutMs = 600_000 } = {}) {
     await runGit(['fetch', '--prune', '--tags', '--quiet', 'origin'], { cwd: dir, timeoutMs, maxBuffer: 16 * 1024 * 1024 });
 }
 
+function parseRefList(out, separator) {
+    const refs = new Map();
+    for (const line of String(out || '').split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const at = trimmed.indexOf(separator);
+        if (at < 0) continue;
+        const sha = trimmed.slice(0, at).trim();
+        const ref = trimmed.slice(at + separator.length).trim();
+        if (!/^[0-9a-f]{40,64}$/.test(sha) || !ref.startsWith('refs/')) continue;
+        refs.set(ref, sha);
+    }
+    return refs;
+}
+
+/** The heads and tags the remote advertises, read with git's own ls-refs (no REST quota). */
+async function remoteRefs(owner, name, { timeoutMs = 60_000 } = {}) {
+    const out = await runText(['ls-remote', '--refs', '--heads', '--tags', 'origin'], { cwd: repoDir(owner, name), timeoutMs, maxBuffer: 16 * 1024 * 1024 });
+    return parseRefList(out, '\t');
+}
+
+/** The heads and tags this mirror already has. */
+async function localRefs(owner, name) {
+    const out = await runText(['for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads', 'refs/tags'], { cwd: repoDir(owner, name), maxBuffer: 16 * 1024 * 1024 });
+    return parseRefList(out, ' ');
+}
+
+/** Whether the remote advertises anything this mirror does not have: the poll reads refs before it fetches. */
+async function mirrorChanged(owner, name, { timeoutMs = 60_000 } = {}) {
+    const [remote, local] = await Promise.all([remoteRefs(owner, name, { timeoutMs }), localRefs(owner, name)]);
+    if (remote.size !== local.size) return true;
+    for (const [ref, sha] of remote) if (local.get(ref) !== sha) return true;
+    return false;
+}
+
 /** Push a repository mirror to another URL, the token in the environment (never argv, never the log). */
 async function pushMirror(owner, name, url, { token, timeoutMs = 600_000 } = {}) {
     const dir = repoDir(owner, name);
@@ -454,4 +489,5 @@ module.exports = {
     repoDir, ensureDataDirs, repoExists, repoBytes, initRepo, setRepoConfig, setRemote, resolveCommit, defaultRef,
     readTree, readBlob, rawBlob, blobBytes, history, commitDetail, branches, tags, contributors, commitsPerWeek, languages, commitFiles,
     writeInitialCommit, cloneMirror, cloneLocal, fetchMirror, pushMirror, removeRepo, parseLsTree, catFiles,
+    remoteRefs, localRefs, mirrorChanged,
 };
