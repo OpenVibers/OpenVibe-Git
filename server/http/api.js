@@ -4,7 +4,7 @@
  * /api/v1: repositories, browsing, stars and forks, contents writes, clone tokens, the home numbers and the
  * GitHub webhook. Everything a page shows is here too; nothing here needs a browser.
  *
- * Public reads need no sign-in. A write needs the session or a token with git.write. A private repository
+ * Public reads need no sign-in. A write needs the session or a token with git.repo.write. A private repository
  * answers 404 to anyone who may not see it, never 403: its existence is not public.
  */
 const express = require('express');
@@ -77,7 +77,7 @@ function createApi(ctx) {
         // namespace that already belongs to somebody else.
         let actor = caller;
         if (caller.actor_type === 'service') {
-            if (!caller.scopes.has('git.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.read).');
+            if (!caller.scopes.has('git.repo.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.repo.read).');
             if (!caller.on_behalf_of) return problem(req, res, 401, 'auth.subject_required', 'Name the person this repository is for in X-OV-Subject.');
             const username = String(body.owner_username || '').trim().toLowerCase();
             if (!username) return problem(req, res, 422, 'repo.owner_required', 'owner_username names the person whose repository this is.');
@@ -250,11 +250,11 @@ function createApi(ctx) {
         const caller = await callerFor(req);
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
-        if (!caller) return problem(req, res, 401, 'auth.required', 'Sign in or present a token with git.write.');
-        if (!caller.scopes.has('git.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.read).');
+        if (!caller) return problem(req, res, 401, 'auth.required', 'Sign in or present a token with git.repo.write.');
+        if (!caller.scopes.has('git.repo.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.repo.read).');
         const who = actingAs(caller);
         const own = repos.isOwner(found.row, who);
-        const serviceWrite = caller.actor_type === 'service' && found.row.official && caller.scopes.has('git.write');
+        const serviceWrite = caller.actor_type === 'service' && found.row.official && caller.scopes.has('git.repo.write');
         if (!own && !serviceWrite) return problem(req, res, 403, 'repo.forbidden', 'Only the owner (or the service on an official repository) may write.');
         const body = req.body || {};
         try {
@@ -274,7 +274,7 @@ function createApi(ctx) {
         const caller = await callerFor(req);
         if (!caller) return problem(req, res, 401, 'auth.required', 'Sign in to make a clone token.');
         // A service makes one for the person it names; the person's own token is theirs.
-        if (caller.actor_type === 'service' && !caller.scopes.has('git.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.read).');
+        if (caller.actor_type === 'service' && !caller.scopes.has('git.repo.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.repo.read).');
         const who = actingAs(caller);
         if (!who.subject) return problem(req, res, 401, 'auth.subject_required', 'Name the person this token is for in X-OV-Subject.');
         const body = req.body || {};

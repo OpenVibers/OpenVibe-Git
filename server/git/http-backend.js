@@ -68,10 +68,10 @@ function createSmartHttp({ config, repos, mirrors, insights, log = console }) {
         if (row.visibility === 'public') return true;
         if (!identity) return false;
         if (identity.subject === row.owner_subject) return true;
-        return identity.actor_type === 'service' && row.official && identity.scopes.has('git.read');
+        return identity.actor_type === 'service' && row.official && identity.scopes.has('git.repo.read');
     };
     const mayWrite = (row, identity) => {
-        if (!identity || !identity.scopes.has('git.write')) return false;
+        if (!identity || !identity.scopes.has('git.repo.write')) return false;
         if (identity.subject === row.owner_subject) return true;
         return identity.actor_type === 'service' && row.official;
     };

@@ -30,26 +30,26 @@ const { mintToken } = require('../server/auth/git-auth');
         assert.equal(traversalRef.status, 422);
 
         // A read-only token cannot write through the API.
-        const readOnly = await mintToken(t.store, { subject: sam.subject, scopes: ['git.read'], hours: 1 });
+        const readOnly = await mintToken(t.store, { subject: sam.subject, scopes: ['git.repo.read'], hours: 1 });
         const denied = await t.get('/api/v1/repos/sam/public-one/commits', {
             bearer: readOnly.token, json: { branch: 'x', message: 'no', files: [{ path: 'x', content: 'x' }] },
         });
         assert.equal(denied.status, 403);
 
         // Someone else cannot write to Sam's repository, even with a write token.
-        const rileyWrite = await mintToken(t.store, { subject: other.subject, scopes: ['git.read', 'git.write'], hours: 1 });
+        const rileyWrite = await mintToken(t.store, { subject: other.subject, scopes: ['git.repo.read', 'git.repo.write'], hours: 1 });
         const foreign = await t.get('/api/v1/repos/sam/public-one/commits', {
             bearer: rileyWrite.token, json: { branch: 'x', message: 'no', files: [{ path: 'x', content: 'x' }] },
         });
         assert.ok([403, 404].includes(foreign.status), `foreign write refused (${foreign.status})`);
 
         // An expired token is refused.
-        const expired = await mintToken(t.store, { subject: sam.subject, scopes: ['git.read'], hours: 1 });
+        const expired = await mintToken(t.store, { subject: sam.subject, scopes: ['git.repo.read'], hours: 1 });
         await t.store.execute("UPDATE git_tokens SET expires_at = now() - interval '1 hour' WHERE token_hash = ?", [require('../server/auth/git-auth').hashToken(expired.token)]);
         assert.equal((await t.store.maybe('SELECT 1 AS one FROM git_tokens WHERE token_hash = ? AND expires_at > now()', [require('../server/auth/git-auth').hashToken(expired.token)])), null);
 
         // Every token made through the API leaves an audit row, without the token.
-        const minted = await t.get('/api/v1/tokens', { as: sam, json: { scopes: ['git.read'] } });
+        const minted = await t.get('/api/v1/tokens', { as: sam, json: { scopes: ['git.repo.read'] } });
         assert.equal(minted.status, 201);
         const audit = await t.store.many('SELECT action, actor_subject FROM git_audit ORDER BY id');
         assert.ok(audit.some((a) => a.action === 'token.create'));

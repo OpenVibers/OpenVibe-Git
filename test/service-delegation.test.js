@@ -1,7 +1,7 @@
 'use strict';
 /**
  * A service acting for a person (Codes, Run, Link): a typed Network token for audience openvibe.git with
- * sub svc:<service> and git.read/git.write, naming the person in X-OV-Subject. The service makes a
+ * sub svc:<service> and git.repo.read/git.repo.write, naming the person in X-OV-Subject. The service makes a
  * repository in the person's name, reads their private one, and mints a Git token for their session; it
  * cannot open a namespace that belongs to someone else.
  */
@@ -11,7 +11,7 @@ const { boot } = require('./helpers/boot');
 (async () => {
     const t = await boot();
     try {
-        const service = t.network.gitToken({ subject: 'svc:codes', caps: ['git.read', 'git.write'], type: null });
+        const service = t.network.gitToken({ subject: 'svc:codes', caps: ['git.repo.read', 'git.repo.write'], type: null });
         const ada = t.asUser('ada');
         const bob = t.asUser('bob');
 
@@ -53,7 +53,7 @@ const { boot } = require('./helpers/boot');
 
         // A Git token for the person's session: theirs, not the service's.
         const minted = await t.get('/api/v1/tokens', {
-            bearer: service, headers: { 'x-ov-subject': ada.subject }, json: { scopes: ['git.read', 'git.write'], hours: 2 },
+            bearer: service, headers: { 'x-ov-subject': ada.subject }, json: { scopes: ['git.repo.read', 'git.repo.write'], hours: 2 },
         });
         assert.equal(minted.status, 201, minted.text);
         assert.match(minted.json().token, /^git_/);
@@ -71,13 +71,13 @@ const { boot } = require('./helpers/boot');
         assert.equal((await t.get('/api/v1/repos/ada/ada-site/blob?ref=agent/codes-1&path=notes.txt', { bearer: service, headers: { 'x-ov-subject': ada.subject } })).json().text, 'hello\n');
 
         // A read-only service token may not make a repository or mint one.
-        const readOnly = t.network.gitToken({ subject: 'svc:codes', caps: ['git.read'], type: null });
+        const readOnly = t.network.gitToken({ subject: 'svc:codes', caps: ['git.repo.read'], type: null });
         const refused = await t.get('/api/v1/repos', {
             bearer: readOnly, headers: { 'x-ov-subject': ada.subject }, json: { name: 'read-only', owner_username: 'ada' },
         });
         assert.equal(refused.status, 403);
         assert.equal(refused.json().code, 'token.scope');
-        assert.equal((await t.get('/api/v1/tokens', { bearer: readOnly, headers: { 'x-ov-subject': ada.subject }, json: { scopes: ['git.read'] } })).status, 403);
+        assert.equal((await t.get('/api/v1/tokens', { bearer: readOnly, headers: { 'x-ov-subject': ada.subject }, json: { scopes: ['git.repo.read'] } })).status, 403);
     } finally {
         await t.close();
     }

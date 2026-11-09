@@ -3,7 +3,7 @@
  * An in-process stand-in for OpenVibe.Network with a real RS256 key pair.
  *
  *   JWKS at /api/.well-known/jwks; a person token (verified as a session) and a typed git token
- *   (aud openvibe.git, typ git, cap git.read/git.write). Nothing else: Git's pages sign in through the
+ *   (aud openvibe.git, typ git, cap git.repo.read/git.repo.write). Nothing else: Git's pages sign in through the
  *   real SSO client, whose callback is not exercised here.
  */
 const http = require('http');
@@ -48,7 +48,7 @@ async function startNetwork() {
         const now = Math.floor(Date.now() / 1000);
         return signJwt({ iss: issuer, sub: `id_${crypto.randomBytes(6).toString('hex')}`, subject_id: subject, username, display_name: username, role, aud: ['openvibe.network'], iat: now, exp: now + ttl }, privateKey);
     }
-    function gitToken({ subject, caps = ['git.read', 'git.write'], ttl = 3600, type = 'git' } = {}) {
+    function gitToken({ subject, caps = ['git.repo.read', 'git.repo.write'], ttl = 3600, type = 'git' } = {}) {
         const now = Math.floor(Date.now() / 1000);
         // type null: a service principal's client-credentials token, which carries no typ/purpose.
         return signJwt({ iss: issuer, sub: subject, actor_type: /^svc:/.test(subject) ? 'service' : 'user', aud: ['openvibe.git'], cap: caps, ...(type == null ? {} : { typ: type, purpose: type }), iat: now, exp: now + ttl, jti: `rtk_${crypto.randomBytes(8).toString('hex')}` }, privateKey);

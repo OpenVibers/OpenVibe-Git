@@ -4,9 +4,9 @@
  * Who is cloning or pushing. Two kinds of password, both OpenVibe:
  *
  *   1. A Git token made on the repository page: `git_` + 32 random bytes, stored only as a SHA-256 hash,
- *      scoped git.read / git.write, one hour by default. `POST /api/v1/tokens` (signed in) makes one.
- *   2. A typed Network token for audience openvibe.git: `typ`/`purpose` git, `cap` holding git.read or
- *      git.write, sub a person (usr_) or a service (svc:). A service's client-credentials token carries no
+ *      scoped git.repo.read / git.repo.write, one hour by default. `POST /api/v1/tokens` (signed in) makes one.
+ *   2. A typed Network token for audience openvibe.git: `typ`/`purpose` git, `cap` holding git.repo.read or
+ *      git.repo.write, sub a person (usr_) or a service (svc:). A service's client-credentials token carries no
  *      `typ`/`purpose`; its `actor_type` and `svc:` subject say it is a service, so it is accepted too.
  *      Verified offline against the Network JWKS.
  *
@@ -17,7 +17,7 @@ const crypto = require('node:crypto');
 const { createJwksClient } = require('openvibe-sdk/auth');
 
 const TOKEN_PREFIX = 'git_';
-const SCOPES = Object.freeze(['git.read', 'git.write']);
+const SCOPES = Object.freeze(['git.repo.read', 'git.repo.write']);
 const USER_RE = /^usr_[0-9A-HJKMNP-TV-Z]{26}$/;
 const SVC_RE = /^svc:[a-z][a-z0-9-]{1,39}$/;
 
@@ -31,9 +31,9 @@ const hashToken = (raw) => crypto.createHash('sha256').update(String(raw)).diges
 const newToken = () => `${TOKEN_PREFIX}${crypto.randomBytes(32).toString('base64url')}`;
 
 /** Make a Git token; the raw value is returned once and never stored. */
-async function mintToken(store, { subject, actorType = 'user', scopes = ['git.read'], hours = 1, label = null }) {
+async function mintToken(store, { subject, actorType = 'user', scopes = ['git.repo.read'], hours = 1, label = null }) {
     const wanted = [...new Set((Array.isArray(scopes) ? scopes : [scopes]).filter((s) => SCOPES.includes(s)))];
-    if (!wanted.length) throw new Error('a token needs git.read or git.write');
+    if (!wanted.length) throw new Error('a token needs git.repo.read or git.repo.write');
     const raw = newToken();
     const id = store.newId('tok');
     const expiresAt = new Date(store.now() + Math.max(1, Math.min(24 * 30, Number(hours) || 1)) * 3600_000).toISOString();
@@ -68,8 +68,8 @@ function decode(jwt) {
 }
 
 /**
- * A typed Network token for this audience: RS256, issuer, expiry, aud includes openvibe.git, cap git.read and/or
- * git.write, sub usr_… or svc:…. A service principal's token (client credentials, no typ) counts by its
+ * A typed Network token for this audience: RS256, issuer, expiry, aud includes openvibe.git, cap git.repo.read and/or
+ * git.repo.write, sub usr_… or svc:…. A service principal's token (client credentials, no typ) counts by its
  * actor_type. Returns the same shape as tokenRow.
  */
 async function networkToken(config, raw) {

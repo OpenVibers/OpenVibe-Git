@@ -22,13 +22,13 @@ const { mintToken } = require('../server/auth/git-auth');
         // A private clone needs the owner's token.
         await assert.rejects(() => t.git(['clone', '--quiet', t.cloneUrl('sam', 'only-me'), path.join(work, 'no')]));
 
-        const readToken = await mintToken(t.store, { subject: sam.subject, scopes: ['git.read'], hours: 1 });
+        const readToken = await mintToken(t.store, { subject: sam.subject, scopes: ['git.repo.read'], hours: 1 });
         const privateDir = path.join(work, 'private');
         await t.git(['clone', '--quiet', t.cloneUrl('sam', 'only-me', readToken.token), privateDir]);
         assert.ok(fs.existsSync(path.join(privateDir, 'README.md')));
 
         // A push changes the repository.
-        const writeToken = await mintToken(t.store, { subject: sam.subject, scopes: ['git.read', 'git.write'], hours: 1 });
+        const writeToken = await mintToken(t.store, { subject: sam.subject, scopes: ['git.repo.read', 'git.repo.write'], hours: 1 });
         await t.git(['-c', 'user.name=Sam', '-c', 'user.email=sam@example.com', 'checkout', '-b', 'phone'], publicDir);
         fs.writeFileSync(path.join(publicDir, 'phone.txt'), 'a phone-first change\n');
         await t.git(['add', 'phone.txt'], publicDir);
@@ -37,8 +37,8 @@ const { mintToken } = require('../server/auth/git-auth');
         const pushed = await t.ctx.git.readBlob('sam', 'clone-me', 'phone', 'phone.txt');
         assert.equal(pushed.text, 'a phone-first change\n');
 
-        // A typed Network token with git.write works the same way.
-        const typed = t.network.gitToken({ subject: sam.subject, caps: ['git.read', 'git.write'] });
+        // A typed Network token with git.repo.write works the same way.
+        const typed = t.network.gitToken({ subject: sam.subject, caps: ['git.repo.read', 'git.repo.write'] });
         fs.writeFileSync(path.join(publicDir, 'typed.txt'), 'typed\n');
         await t.git(['add', 'typed.txt'], publicDir);
         await t.git(['-c', 'user.name=Sam', '-c', 'user.email=sam@example.com', 'commit', '-q', '-m', 'Add a typed note'], publicDir);
@@ -46,7 +46,7 @@ const { mintToken } = require('../server/auth/git-auth');
         assert.equal((await t.ctx.git.readBlob('sam', 'clone-me', 'phone', 'typed.txt')).text, 'typed\n');
 
         // A read-only token may not push; an anonymous push is refused.
-        const readOnly = await mintToken(t.store, { subject: sam.subject, scopes: ['git.read'], hours: 1 });
+        const readOnly = await mintToken(t.store, { subject: sam.subject, scopes: ['git.repo.read'], hours: 1 });
         fs.writeFileSync(path.join(publicDir, 'more.txt'), 'no\n');
         await t.git(['add', 'more.txt'], publicDir);
         await t.git(['-c', 'user.name=Sam', '-c', 'user.email=sam@example.com', 'commit', '-q', '-m', 'Nope'], publicDir);

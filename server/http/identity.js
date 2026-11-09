@@ -5,8 +5,8 @@
  * acting for a person.
  *
  * A service holds a typed Network token for this audience. It names the person it is working for in
- * X-OV-Subject (usr_…), the same header the other services use; the service is trusted with git.read or
- * git.write, so the person it names is who the call is for. A service that names nobody acts only where a
+ * X-OV-Subject (usr_…), the same header the other services use; the service is trusted with git.repo.read or
+ * git.repo.write, so the person it names is who the call is for. A service that names nobody acts only where a
  * service may (official repositories, public reads).
  */
 const USER_RE = /^usr_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -31,7 +31,7 @@ function namedSubject(req) {
 
 async function callerOf(req, { store, config }) {
     const viewer = viewerOf(req);
-    if (viewer) return { subject: viewer.subject, username: viewer.username, actor_type: 'user', scopes: new Set(['git.read', 'git.write']), via: 'session' };
+    if (viewer) return { subject: viewer.subject, username: viewer.username, actor_type: 'user', scopes: new Set(['git.repo.read', 'git.repo.write']), via: 'session' };
     const identity = await require('../auth/git-auth').identify(req, { store, config });
     if (!identity) return null;
     if (identity.actor_type === 'service') {

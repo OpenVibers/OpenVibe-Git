@@ -60,7 +60,7 @@ const { boot } = require('./helpers/boot');
         assert.equal(unstarred.json().stars, 0);
 
         // A clone token is shown once and stored hashed.
-        const minted = await t.get('/api/v1/tokens', { as: sam, json: { scopes: ['git.read'], hours: 1 } });
+        const minted = await t.get('/api/v1/tokens', { as: sam, json: { scopes: ['git.repo.read'], hours: 1 } });
         assert.equal(minted.status, 201);
         assert.match(minted.json().token, /^git_/);
         assert.match(minted.json().command, /x-access-token:git_/);
