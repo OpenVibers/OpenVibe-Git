@@ -1,0 +1,75 @@
+{
+  "_about": "The ovhost service entry for OpenVibe Git, to be added to /etc/openvibe/host.json at the cut-over. It is not installed by this change: Forgejo still owns git.openvibe.codes until Opus switches the vhost. Port 5270, drill 15270, database ov_git, repositories under /var/lib/openvibe/git.",
+  "repo": "/opt/openvibe.git",
+  "owner": "ubuntu",
+  "runAs": "ubuntu",
+  "units": [
+    "openvibe-git.service"
+  ],
+  "unitSources": {
+    "openvibe-git.service": "deploy/systemd/openvibe-git.service"
+  },
+  "installUnits": true,
+  "envFile": "/etc/openvibe/git.env",
+  "env": {
+    "required": [
+      "BASE_URL",
+      "DATABASE_URL",
+      "DATABASE_DIRECT_URL",
+      "OV_OAUTH_CLIENT_ID",
+      "OV_OAUTH_CLIENT_SECRET",
+      "GIT_DATA_DIR",
+      "GIT_SECRET_KEY"
+    ]
+  },
+  "port": 5270,
+  "ready": {
+    "url": "http://127.0.0.1:5270/api/ready",
+    "timeoutSeconds": 30
+  },
+  "noRestartPaths": [
+    "public/",
+    "test/",
+    "deploy/nginx/",
+    "docs/",
+    "**/*.md"
+  ],
+  "databases": [
+    {
+      "name": "git",
+      "engine": "postgresql",
+      "database": "ov_git"
+    }
+  ],
+  "nginx": {
+    "vhost": "git.openvibe.codes.conf",
+    "repoVhost": "deploy/nginx/git.openvibe.codes.conf",
+    "variant": "https"
+  },
+  "drill": {
+    "port": 15270,
+    "ready": "/api/ready",
+    "databases": {
+      "git": {
+        "url": "DATABASE_URL",
+        "directUrl": "DATABASE_DIRECT_URL"
+      }
+    },
+    "env": {
+      "PORT": "{port}",
+      "HOST": "127.0.0.1",
+      "OV_NETWORK_INTERNAL_URL": "http://127.0.0.1:9",
+      "OV_OAUTH_CLIENT_SECRET": "",
+      "GIT_DATA_DIR": "{tmp}/repos",
+      "GIT_DRILL": "1"
+    },
+    "dirs": [
+      "{tmp}/repos"
+    ],
+    "compare": [
+      "/api/health",
+      "/api/ready",
+      "/api/v1/stats"
+    ]
+  }
+}

@@ -28,5 +28,10 @@ Production reads `/etc/openvibe/git.env`; see `.env.example`. `DATABASE_URL` ser
 - `contracts` — `git.repo@1`, `git.commit@1`, `git.tree@1`, `git.insights@1` (OpenVibe.Contracts).
 - `deploy/` — the systemd unit and the nginx vhost for `git.openvibe.codes`.
 
-Sign-in is OpenVibe only. Git over HTTPS uses a short-lived Git token made on the repository page (`git.read` /
-`git.write`) or a typed Network token for the same audience; no second account system exists.
+Sign-in is OpenVibe only. Git over HTTPS uses a short-lived Git token made on the repository page (`git.repo.read` /
+`git.repo.write`) or a typed Network token for the same audience; no second account system exists.
+
+A first-party service (Codes, Run, Link) holds a typed Network token for `openvibe.git` and acts for the person it
+names in `X-OV-Subject`: `POST /api/v1/repos` (with `owner_username`), `GET /api/v1/profile/:username` and
+`POST /api/v1/tokens` then work as that person, and the Git token it mints is the person's own for clone and push.
+A service never holds a person's password.
