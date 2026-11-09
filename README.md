@@ -54,3 +54,5 @@ A first-party service (Codes, Run, Link) holds a typed Network token for `openvi
 names in `X-OV-Subject`: `POST /api/v1/repos` (with `owner_username`), `GET /api/v1/profile/:username` and
 `POST /api/v1/tokens` then work as that person, and the Git token it mints is the person's own for clone and push.
 A service never holds a person's password.
+
+G2 adds changes and review, compare, issues, blame and code search. See [the API and integration notes](docs/g2-review.md) for routes, capability grants, the AI-choices dependency, and recovery details.

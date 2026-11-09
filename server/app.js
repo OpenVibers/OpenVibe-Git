@@ -32,6 +32,9 @@ const { createSmartHttp, parseGitPath } = require('./git/http-backend');
 const { identify } = require('./auth/git-auth');
 const { createApi } = require('./http/api');
 const { createPageRoutes } = require('./http/pages');
+const { createReviewRoutes } = require('./http/review');
+const { createReviews } = require('./reviews');
+const { createReviewServices } = require('./review-services');
 const { setRelease } = require('./render/layout');
 
 const VERSION = require('../package.json').version;
@@ -56,6 +59,8 @@ function createApp(opts = {}) {
             secureCookies: config.cookies.secure, fetch: fetchImpl, log,
         });
         const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, smartHttp, sso, log };
+
+        ctx.reviews = createReviews(ctx, opts.reviewServices || createReviewServices(config, fetchImpl));
 
         const release = opts.release || require('openvibe-shared/release').createRelease({ service: 'git', root: path.join(__dirname, '..') });
         setRelease(release.release);
@@ -149,11 +154,13 @@ function createApp(opts = {}) {
             windowMs: 60_000, limit: config.apiRateLimitPerMinute, standardHeaders: true, legacyHeaders: false,
             handler: (req, res) => contracts.http.sendProblem(res, 429, 'rate_limited', { detail: 'too many requests from this address; retry shortly', ctx: req.ov }),
         }));
+        app.use('/api/v1', createReviewRoutes(ctx, true));
         app.use('/api/v1', createApi(ctx));
         app.use('/api', (req, res) => contracts.http.sendProblem(res, 404, 'route.not_found', { detail: 'No such API route', ctx: req.ov }));
 
         // ── Pages ───────────────────────────────────────────────
         app.use(rateLimit({ windowMs: 60_000, limit: config.pageRateLimitPerMinute, standardHeaders: true, legacyHeaders: false }));
+        app.use(createReviewRoutes(ctx));
         app.use(createPageRoutes(ctx));
 
         // eslint-disable-next-line no-unused-vars
