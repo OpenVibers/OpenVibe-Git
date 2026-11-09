@@ -2,6 +2,8 @@
 const assert=require('node:assert/strict');
 const {createReviewServices}=require('../server/review-services');
 (async()=>{
+ const missing=createReviewServices({oauth:{clientId:'git',clientSecret:''}});
+ await assert.rejects(missing.summary({}),e=>e.status===503);
  const calls=[];
  const client={json:async(o)=>{calls.push(o);if(o.path.endsWith('/resolve'))return {thread:{id:'cth_test'}};if(o.path==='/api/v1/tasks')return {tasks:[{name:'ai.generate'}]};if(o.path==='/api/v1/runs')return {run:{id:'run_1',status:'succeeded',output:{text:'Summary: test. Risk: limited.'},provenance:{model:'local/model'}}};return {};}};
  const services=createReviewServices({oauth:{clientId:'test',clientSecret:'fixture'},networkInternalUrl:'http://127.0.0.1:1'},undefined,client);

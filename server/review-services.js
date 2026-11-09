@@ -5,6 +5,10 @@ const { createAiClient } = require('openvibe-sdk/ai');
 const { createNotificationsClient } = require('openvibe-sdk/notifications');
 const { fail } = require('./git/review');
 function createReviewServices(config, fetchImpl, injectedClient) {
+    if (!config.oauth.clientSecret && !injectedClient) {
+        const unavailable = async () => { throw fail(503,'Review service credentials are not configured'); };
+        return { thread:unavailable, comment:unavailable, notify:unavailable, summary:unavailable };
+    }
     const tokens = createServiceTokenClient({ clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret,
         network: config.networkInternalUrl, fetch: fetchImpl,
         scope: { 'openvibe.community': 'community.comment.write community.comment.moderate', 'openvibe.network': 'network.notifications.push identity.subject.resolve', 'openvibe.ai': 'ai.run.create ai.run.read' } });
