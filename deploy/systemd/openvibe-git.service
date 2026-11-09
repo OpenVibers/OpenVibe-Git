@@ -1,0 +1,32 @@
+[Unit]
+Description=OpenVibe Git — git.openvibe.codes: repositories, browsing, GitHub mirrors and insights
+# Network (sign-in, JWKS) and the database should be up first; the site still answers its git routes if Network is
+# briefly away (a public clone needs no token, and a token is verified offline against the last good keys).
+After=network.target postgresql.service pgbouncer.service
+Wants=openvibe-network.service postgresql.service pgbouncer.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/openvibe.git
+EnvironmentFile=/etc/openvibe/git.env
+Environment=NODE_ENV=production
+Environment=PORT=5270
+Environment=HOST=127.0.0.1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node /opt/openvibe.git/server/index.js
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+# An in-flight git clone or push gets the 10 s drain, then the process stops; git clients retry.
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# The bare repositories: DATA_DIR/repos/<owner>/<name>.git, under /var/lib/openvibe/git.
+ReadWritePaths=/var/lib/openvibe/git
+
+[Install]
+WantedBy=multi-user.target
