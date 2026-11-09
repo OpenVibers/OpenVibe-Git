@@ -131,6 +131,15 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
             }
             const batch = await res.json();
             if (!Array.isArray(batch)) throw new Error('GitHub returned no repository list');
+            // The listing carries what meta() would ask for: cache it, so mirroring 70 repositories costs a page or two
+            // of the API, not one call each (the host has 60 an hour without a token).
+            for (const repo of batch) {
+                if (!repo || !repo.full_name) continue;
+                metaCache.set(String(repo.full_name).toLowerCase(), { at: now(), meta: {
+                    full_name: repo.full_name, description: repo.description || '', default_branch: repo.default_branch || 'main',
+                    language: repo.language || null, stars: Number(repo.stargazers_count) || 0, private: !!repo.private,
+                } });
+            }
             all.push(...batch);
             url = nextLink(res.headers && typeof res.headers.get === 'function' ? res.headers.get('link') : null);
         }

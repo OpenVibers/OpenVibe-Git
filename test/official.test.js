@@ -130,7 +130,10 @@ const LISTING = {
         const solo = await t.ctx.github.orgRepos('Solo');
         assert.deepEqual(solo.map((r) => r.full_name), ['Solo/solo-site']);
         assert.ok(calls.some((c) => c.url.includes('/users/Solo/repos?type=owner')), 'falls back to /users/<name>/repos');
+        const before = calls.length;
+        assert.equal((await t.ctx.github.meta('Solo/solo-site')).default_branch, 'main');
+        assert.equal(calls.length, before, 'the listing fills the metadata cache: no call per repository');
 
-        console.log('official: 32 checks passed');
+        console.log('official: 34 checks passed');
     } finally { await t.close(); }
 })().catch((err) => { console.error(err); process.exit(1); });
