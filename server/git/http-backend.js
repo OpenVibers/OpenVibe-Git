@@ -81,6 +81,8 @@ function createSmartHttp({ config, repos, mirrors, insights, log = console }) {
         const service = String(new URL(req.url, 'http://x').searchParams.get('service') || '');
         const write = suffix === 'git-receive-pack' || (suffix === 'info/refs' && service === 'git-receive-pack');
         if (write ? !mayWrite(row, identity) : !mayRead(row, identity)) {
+            // Git retries with the URL's token only after a 401, so a private read asks for one. The API and the
+            // pages answer 404 instead and never reveal that a private repository exists.
             if (!identity) res.set('WWW-Authenticate', 'Basic realm="OpenVibe.Git"');
             res.status(identity ? 403 : 401).type('text/plain').send(write ? 'This token may not push here.' : 'This repository is private.');
             return;
