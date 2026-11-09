@@ -36,6 +36,9 @@ const LISTING = {
             const link = page === 1 ? '<https://api.github.com/orgs/OpenVibers/repos?type=public&per_page=100&page=2>; rel="next"' : null;
             return response(LISTING[page] || [], link);
         }
+        // A user account, not an organisation: GitHub answers 404 for /orgs/<name>/repos (OpenVibers is one, 11-09).
+        if (target.pathname === '/orgs/Solo/repos') return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({ message: 'Not Found' }) };
+        if (target.pathname === '/users/Solo/repos') return response([{ name: 'solo-site', full_name: 'Solo/solo-site', fork: false, archived: false, private: false, clone_url: 'https://github.com/Solo/solo-site.git' }], null);
         const meta = /^\/repos\/OpenVibers\/([^/]+)$/.exec(target.pathname);
         if (meta) return response({ full_name: `OpenVibers/${meta[1]}`, description: '', default_branch: 'main', private: false, stargazers_count: 0 });
         throw new Error(`unexpected GitHub request ${url}`);
@@ -123,6 +126,11 @@ const LISTING = {
         assert.equal((await pending).ran, true);
         t.ctx.github.orgRepos = realOrgRepos;
 
-        console.log('official: 30 checks passed');
+        // A user account's repositories: the org listing 404s, the user listing answers.
+        const solo = await t.ctx.github.orgRepos('Solo');
+        assert.deepEqual(solo.map((r) => r.full_name), ['Solo/solo-site']);
+        assert.ok(calls.some((c) => c.url.includes('/users/Solo/repos?type=owner')), 'falls back to /users/<name>/repos');
+
+        console.log('official: 32 checks passed');
     } finally { await t.close(); }
 })().catch((err) => { console.error(err); process.exit(1); });

@@ -103,15 +103,27 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         } catch { return null; }
     }
 
-    /** Every public repository of an organisation, following GitHub's Link pagination. */
+    /**
+     * Every public repository of an organisation (or of a user account: OpenVibers is one, and GitHub answers 404 for
+     * /orgs/<user>/repos, 11-09), following GitHub's Link pagination.
+     */
     async function orgRepos(org, { perPage = 100, maxPages = 100 } = {}) {
         const apiOrigin = new URL(config.github.apiUrl).origin;
         let url = `${config.github.apiUrl}/orgs/${encodeURIComponent(org)}/repos?type=public&per_page=${perPage}`;
+        let triedUser = false;
         const all = [];
         for (let page = 0; url && page < maxPages; page += 1) {
             const current = new URL(url);
             if (current.origin !== apiOrigin) throw new Error('GitHub pagination left the API origin');
             const res = await fetchImpl(current.toString(), { headers: headers(), signal: AbortSignal.timeout(15_000) });
+            if (res.status === 404 && page === 0 && !triedUser) {
+                // Not an organisation: the same name as a user account. type=owner lists what it owns; private ones
+                // never appear without that account's token, and the seed keeps only public repositories anyway.
+                triedUser = true;
+                url = `${config.github.apiUrl}/users/${encodeURIComponent(org)}/repos?type=owner&per_page=${perPage}`;
+                page -= 1;
+                continue;
+            }
             if (!res.ok) {
                 const err = new Error(`GitHub ${res.status} for ${current.pathname}`);
                 err.status = res.status;
