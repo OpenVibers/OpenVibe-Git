@@ -3,6 +3,9 @@
 Git for OpenVibe: host code with your OpenVibe account, browse it, mirror GitHub, and clone it to your computer with
 Link.
 
+**Live site:** https://git.openvibe.codes · **API docs:** https://openvibe.services · **For AI:** https://git.openvibe.codes/llms.txt
+**Run it:** `npm ci && npm run dev` (Node 22 or newer) · **Tests:** `npm test`
+
 `git.openvibe.codes` is served by this Node service. Repositories are bare git repositories on disk and the wire
 protocol is git's own `git http-backend`; the pages, the API and the insights are ours, built with the shared navbar,
 footer and kit.
