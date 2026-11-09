@@ -131,7 +131,7 @@ function createRepos({ store, config, git, github, insights, log = console }) {
                 if (meta.private) throw Object.assign(new Error('That GitHub repository is private.'), { status: 422 });
                 await git.cloneMirror(owner, repoName, mirror.clone_url, { timeoutMs: config.mirrors.timeoutMs });
                 await store.execute(
-                    `UPDATE git_repos SET description = ?, default_branch = ?, mirror_state = 'ready', mirror_last_synced_at = now(), updated_at = now() WHERE id = ?`,
+                    `UPDATE git_repos SET description = ?, default_branch = ?, mirror_state = 'ready', mirror_last_synced_at = now(), pushed_at = now(), updated_at = now() WHERE id = ?`,
                     [description || meta.description || '', meta.default_branch || 'main', id],
                 );
             } else {

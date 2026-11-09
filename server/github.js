@@ -62,7 +62,7 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
                 full_name: repo.full_name,
                 html_url: repo.html_url,
                 stars: Number(repo.stargazers_count) || 0,
-                open_issues: Number(repo.open_issues_count) || 0,
+                open_issues: Math.max(0, (Number(repo.open_issues_count) || 0) - (Number(prs && prs.total_count) || 0)),
                 open_pull_requests: Number(prs && prs.total_count) || 0,
                 ci_state: status && ['success', 'failure', 'pending'].includes(status.state) ? status.state : 'unknown',
                 fetched_at: new Date(now()).toISOString(),

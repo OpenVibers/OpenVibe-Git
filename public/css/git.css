@@ -340,3 +340,9 @@
 .git-official-main { flex: 1; min-width: 0; }
 .git-official li a.git-official-gh { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 8px 10px; color: var(--text-muted); font-size: .76rem; }
 .git-official-gh svg { width: 14px; height: 14px; }
+.git-tree { table-layout: fixed; }
+.git-tree .git-entry { width: 34%; }
+.git-tree .git-entry-msg { width: 44%; max-width: none; }
+.git-tree .git-entry-when { width: 14%; }
+.git-tree .git-entry-size { width: 8%; }
+@media (max-width: 560px) { .git-tree .git-entry { width: 100%; } .git-tree .git-entry-when { width: 0; display: none; } }

@@ -37,7 +37,7 @@ function createMirrors({ store, repos, config, git, github, log = console }) {
                 } else {
                     await git.fetchMirror(row.owner_username, row.name, { timeoutMs: config.mirrors.timeoutMs });
                 }
-                await store.execute("UPDATE git_repos SET mirror_state = 'ready', mirror_error = NULL, mirror_last_synced_at = now(), updated_at = now() WHERE id = ?", [row.id]);
+                await store.execute("UPDATE git_repos SET mirror_state = 'ready', mirror_error = NULL, mirror_last_synced_at = now(), pushed_at = now(), updated_at = now() WHERE id = ?", [row.id]);
                 await repos.refreshLanguages(row);
                 await repos.recordEvent(row, 'mirror', { subject: null, username: null }, { state: 'ready' });
                 return { ok: true };
