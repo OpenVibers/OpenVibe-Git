@@ -90,6 +90,41 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return meta;
     }
 
+    /** The `rel="next"` URL in a GitHub Link header, if it stays on the configured API origin. */
+    function nextLink(header) {
+        if (!header) return null;
+        const match = /<([^>]+)>\s*;\s*rel="next"/i.exec(String(header));
+        if (!match) return null;
+        try {
+            const next = new URL(match[1], config.github.apiUrl);
+            // The token is on every request: never follow a page onto another host.
+            if (next.origin !== new URL(config.github.apiUrl).origin) return null;
+            return next.toString();
+        } catch { return null; }
+    }
+
+    /** Every public repository of an organisation, following GitHub's Link pagination. */
+    async function orgRepos(org, { perPage = 100, maxPages = 100 } = {}) {
+        const apiOrigin = new URL(config.github.apiUrl).origin;
+        let url = `${config.github.apiUrl}/orgs/${encodeURIComponent(org)}/repos?type=public&per_page=${perPage}`;
+        const all = [];
+        for (let page = 0; url && page < maxPages; page += 1) {
+            const current = new URL(url);
+            if (current.origin !== apiOrigin) throw new Error('GitHub pagination left the API origin');
+            const res = await fetchImpl(current.toString(), { headers: headers(), signal: AbortSignal.timeout(15_000) });
+            if (!res.ok) {
+                const err = new Error(`GitHub ${res.status} for ${current.pathname}`);
+                err.status = res.status;
+                throw err;
+            }
+            const batch = await res.json();
+            if (!Array.isArray(batch)) throw new Error('GitHub returned no repository list');
+            all.push(...batch);
+            url = nextLink(res.headers && typeof res.headers.get === 'function' ? res.headers.get('link') : null);
+        }
+        return all;
+    }
+
     /** GitHub's X-Hub-Signature-256 over the raw body, constant time. */
     function signatureOk(rawBody, signature) {
         const secret = config.github.webhookSecret;
@@ -100,7 +135,7 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return a.length === b.length && crypto.timingSafeEqual(a, b);
     }
 
-    return { parseGithubUrl, card, meta, signatureOk, _cache: cache };
+    return { parseGithubUrl, card, meta, orgRepos, signatureOk, _cache: cache };
 }
 
 module.exports = { createGithubClient, parseGithubUrl, FULL_RE };

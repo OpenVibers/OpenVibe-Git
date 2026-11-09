@@ -27,6 +27,7 @@ const { createGithubClient } = require('./github');
 const { createInsights } = require('./insights');
 const { createRepos } = require('./repos');
 const { createMirrors } = require('./mirror');
+const { createOfficialMirrors } = require('./official');
 const { createSmartHttp, parseGitPath } = require('./git/http-backend');
 const { identify } = require('./auth/git-auth');
 const { createApi } = require('./http/api');
@@ -47,13 +48,14 @@ function createApp(opts = {}) {
         const insights = opts.insights || createInsights({ store: s, log });
         const repos = opts.repos || createRepos({ store: s, config, git, github, insights, log });
         const mirrors = opts.mirrors || createMirrors({ store: s, repos, config, git, github, log });
+        const official = opts.official || createOfficialMirrors({ store: s, repos, config, github, log });
         const smartHttp = opts.smartHttp || createSmartHttp({ config, repos, mirrors, insights, log });
         const sso = opts.sso || createSsoClient({
             site: 'git', baseUrl: config.baseUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret,
             networkUrl: config.networkUrl, networkInternalUrl: config.networkInternalUrl,
             secureCookies: config.cookies.secure, fetch: fetchImpl, log,
         });
-        const ctx = { config, store: s, s, git, github, insights, repos, mirrors, smartHttp, sso, log };
+        const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, smartHttp, sso, log };
 
         const release = opts.release || require('openvibe-shared/release').createRelease({ service: 'git', root: path.join(__dirname, '..') });
         setRelease(release.release);
