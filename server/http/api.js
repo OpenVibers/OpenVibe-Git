@@ -9,7 +9,7 @@
  */
 const express = require('express');
 const contracts = require('openvibe-contracts');
-const { viewerOf, callerOf } = require('./identity');
+const { callerOf, viewerFrom } = require('./identity');
 const { mintToken } = require('../auth/git-auth');
 
 const problem = (req, res, status, code, detail) => contracts.http.sendProblem(res, status, code, { detail, ctx: req.ov });
@@ -21,9 +21,19 @@ function createApi(ctx) {
     const { config, repos, mirrors, git, insights, store, sso } = ctx;
     const r = express.Router();
     const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
+    // One identity read per request: the session, or a token (a person's or a service's, and for a service the
+    // person it names in X-OV-Subject).
+    const callerFor = async (req) => {
+        if (!Object.prototype.hasOwnProperty.call(req, '_ovCaller')) req._ovCaller = await callerOf(req, { store, config });
+        return req._ovCaller;
+    };
+    const viewerFor = async (req) => viewerFrom(await callerFor(req));
+    // The person a service acts for becomes the actor for ownership and personal rows; a person's own caller is
+    // unchanged.
+    const actingAs = (caller) => ({ ...caller, subject: caller.on_behalf_of || caller.subject });
     const visible = async (req, owner, name, withCard = false) => {
         const row = await repos.getRow(owner, name);
-        if (!row || !repos.canView(row, viewerOf(req))) return null;
+        if (!row || !repos.canView(row, await viewerFor(req))) return null;
         let card = null;
         if (withCard && row.github_full_name) card = await ctx.github.card(row.github_full_name, { branch: row.default_branch });
         return { row, card };
@@ -32,7 +42,7 @@ function createApi(ctx) {
 
     // ── Repositories ────────────────────────────────────────
     r.get('/repos', h(async (req, res) => {
-        const viewer = viewerOf(req);
+        const viewer = await viewerFor(req);
         const out = await repos.list({
             viewer,
             q: String(req.query.q || '').slice(0, 100),
@@ -52,19 +62,34 @@ function createApi(ctx) {
     r.get('/repos/:owner/:name', h(async (req, res) => {
         const found = await visible(req, req.params.owner, req.params.name, true);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository, or it is private.');
-        const viewer = viewerOf(req);
+        const viewer = await viewerFor(req);
         const out = repoJson(found.row, found.card);
         out.starred = await repos.isStarred(found.row, viewer && viewer.subject);
         return res.json(out);
     }));
 
     r.post('/repos', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
-        if (!caller || !caller.username) return problem(req, res, 401, 'auth.required', 'Sign in to make a repository.');
+        const caller = await callerFor(req);
+        if (!caller) return problem(req, res, 401, 'auth.required', 'Sign in to make a repository.');
         const body = req.body || {};
+        // A service (Codes, Run, Link) makes a repository for the person it names in X-OV-Subject; the person's
+        // username is the repository's namespace, so the service says it in owner_username. It must not open a
+        // namespace that already belongs to somebody else.
+        let actor = caller;
+        if (caller.actor_type === 'service') {
+            if (!caller.scopes.has('git.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.read).');
+            if (!caller.on_behalf_of) return problem(req, res, 401, 'auth.subject_required', 'Name the person this repository is for in X-OV-Subject.');
+            const username = String(body.owner_username || '').trim().toLowerCase();
+            if (!username) return problem(req, res, 422, 'repo.owner_required', 'owner_username names the person whose repository this is.');
+            const other = await store.maybe('SELECT 1 AS one FROM git_repos WHERE owner_username = ? AND owner_subject IS NOT NULL AND owner_subject <> ? LIMIT 1', [username, caller.on_behalf_of]);
+            if (other) return problem(req, res, 409, 'repo.owner_mismatch', 'That username belongs to another OpenVibe account.');
+            actor = { subject: caller.on_behalf_of, username, actor_type: 'service' };
+        } else if (!caller.username) {
+            return problem(req, res, 401, 'auth.required', 'Sign in to make a repository.');
+        }
         try {
             const repo = await repos.create({
-                actor: caller, name: body.name, description: body.description, visibility: body.visibility,
+                actor, name: body.name, description: body.description, visibility: body.visibility,
                 topics: Array.isArray(body.topics) ? body.topics : [], starter: body.starter,
                 mirrorUrl: body.mirror_url || body.mirrorUrl,
             }, { address: req.ip });
@@ -73,7 +98,7 @@ function createApi(ctx) {
     }));
 
     r.post('/repos/:owner/:name/fork', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
+        const caller = await callerFor(req);
         if (!caller || !caller.username) return problem(req, res, 401, 'auth.required', 'Sign in to fork.');
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository, or it is private.');
@@ -84,7 +109,7 @@ function createApi(ctx) {
     }));
 
     r.post('/repos/:owner/:name/mirror', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
+        const caller = await callerFor(req);
         if (!caller) return problem(req, res, 401, 'auth.required', 'Sign in.');
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository, or it is private.');
@@ -95,29 +120,29 @@ function createApi(ctx) {
     }));
 
     r.post('/repos/:owner/:name/sync', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
+        const caller = await callerFor(req);
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
-        if (!caller || !repos.isOwner(found.row, caller)) return problem(req, res, 403, 'repo.forbidden', 'Only the owner can sync a mirror.');
+        if (!caller || !repos.isOwner(found.row, actingAs(caller))) return problem(req, res, 403, 'repo.forbidden', 'Only the owner can sync a mirror.');
         if (!found.row.mirror_url) return problem(req, res, 422, 'repo.not_mirror', 'This repository is not a mirror.');
         const result = await mirrors.syncRow(found.row);
         return res.status(result.ok ? 202 : 502).json(result);
     }));
 
     r.put('/repos/:owner/:name/star', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
-        if (!caller || !caller.subject) return problem(req, res, 401, 'auth.required', 'Sign in to star.');
+        const caller = await callerFor(req);
+        if (!caller || !actingAs(caller).subject) return problem(req, res, 401, 'auth.required', 'Sign in to star.');
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
-        return res.json(await repos.star(found.row, caller.subject, true));
+        return res.json(await repos.star(found.row, actingAs(caller).subject, true));
     }));
 
     r.delete('/repos/:owner/:name/star', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
-        if (!caller || !caller.subject) return problem(req, res, 401, 'auth.required', 'Sign in to unstar.');
+        const caller = await callerFor(req);
+        if (!caller || !actingAs(caller).subject) return problem(req, res, 401, 'auth.required', 'Sign in to unstar.');
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
-        return res.json(await repos.star(found.row, caller.subject, false));
+        return res.json(await repos.star(found.row, actingAs(caller).subject, false));
     }));
 
     // ── Browsing ────────────────────────────────────────────
@@ -201,10 +226,10 @@ function createApi(ctx) {
         return res.json({ releases: await repos.releases(found.row) });
     }));
     r.post('/repos/:owner/:name/releases', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
+        const caller = await callerFor(req);
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
-        if (!caller || !repos.isOwner(found.row, caller)) return problem(req, res, 403, 'repo.forbidden', 'Only the owner can publish a release.');
+        if (!caller || !repos.isOwner(found.row, actingAs(caller))) return problem(req, res, 403, 'repo.forbidden', 'Only the owner can publish a release.');
         try {
             return res.status(201).json({ releases: await repos.publishRelease(found.row, { ...(req.body || {}), actor: caller }) });
         } catch (err) { return fail(req, res, err); }
@@ -222,22 +247,23 @@ function createApi(ctx) {
 
     // ── Writes without a clone ─────────────────────────────
     r.post('/repos/:owner/:name/commits', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
+        const caller = await callerFor(req);
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
         if (!caller) return problem(req, res, 401, 'auth.required', 'Sign in or present a token with git.write.');
         if (!caller.scopes.has('git.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.read).');
-        const own = repos.isOwner(found.row, caller);
+        const who = actingAs(caller);
+        const own = repos.isOwner(found.row, who);
         const serviceWrite = caller.actor_type === 'service' && found.row.official && caller.scopes.has('git.write');
         if (!own && !serviceWrite) return problem(req, res, 403, 'repo.forbidden', 'Only the owner (or the service on an official repository) may write.');
         const body = req.body || {};
         try {
-            const author = body.author || (caller.username ? { name: caller.username, email: `${caller.username}@users.noreply.openvibe.codes` } : { name: 'OpenVibe Git', email: 'git@openvibe.codes' });
+            const author = body.author || (who.username ? { name: who.username, email: `${who.username}@users.noreply.openvibe.codes` } : { name: 'OpenVibe Git', email: 'git@openvibe.codes' });
             const out = await git.commitFiles(found.row.owner_username, found.row.name, {
                 branch: body.branch, message: body.message, files: body.files, base: body.base, author, committer: author,
             }, { defaultBranch: found.row.default_branch, maxBytes: config.data.maxPushBytes });
-            await repos.recordEvent(found.row, 'push', caller, { sha: out.sha, branch: out.branch, via: 'api' });
-            await repos.audit(caller, 'git.commit', found.row, { sha: out.sha, branch: out.branch }, req.ip);
+            await repos.recordEvent(found.row, 'push', who, { sha: out.sha, branch: out.branch, via: 'api' });
+            await repos.audit(who, 'git.commit', found.row, { sha: out.sha, branch: out.branch, via: caller.actor_type === 'service' ? caller.subject : 'api' }, req.ip);
             await mirrors.afterPush(found.row);
             return res.status(201).json({ repo: `${found.row.owner_username}/${found.row.name}`, ...out });
         } catch (err) { return fail(req, res, err); }
@@ -245,15 +271,19 @@ function createApi(ctx) {
 
     // ── Clone tokens ───────────────────────────────────────
     r.post('/tokens', h(async (req, res) => {
-        const caller = await callerOf(req, { store, config });
+        const caller = await callerFor(req);
         if (!caller) return problem(req, res, 401, 'auth.required', 'Sign in to make a clone token.');
+        // A service makes one for the person it names; the person's own token is theirs.
+        if (caller.actor_type === 'service' && !caller.scopes.has('git.write')) return problem(req, res, 403, 'token.scope', 'This token may only read (git.read).');
+        const who = actingAs(caller);
+        if (!who.subject) return problem(req, res, 401, 'auth.subject_required', 'Name the person this token is for in X-OV-Subject.');
         const body = req.body || {};
         try {
             const minted = await mintToken(store, {
-                subject: caller.subject, actorType: caller.actor_type, scopes: body.scopes,
+                subject: who.subject, actorType: 'user', scopes: body.scopes,
                 hours: body.hours || config.tokens.ttlHours, label: String(body.label || '').slice(0, 100) || null,
             });
-            await repos.audit(caller, 'token.create', null, { scopes: minted.scopes, token_id: minted.id }, req.ip);
+            await repos.audit(who, 'token.create', null, { scopes: minted.scopes, token_id: minted.id, via: caller.actor_type === 'service' ? caller.subject : 'session' }, req.ip);
             const host = config.baseUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
             return res.status(201).json({
                 token: minted.token, token_type: minted.token_type, expires_at: minted.expires_at, scopes: minted.scopes,
@@ -267,7 +297,7 @@ function createApi(ctx) {
     r.get('/stats', h(async (_req, res) => res.json(await repos.stats())));
     r.get('/activity', h(async (req, res) => res.json({ events: await repos.activity(req.query.limit) })));
     r.get('/profile/:username', h(async (req, res) => {
-        const profile = await repos.profile(String(req.params.username).toLowerCase(), { viewer: viewerOf(req) });
+        const profile = await repos.profile(String(req.params.username).toLowerCase(), { viewer: await viewerFor(req) });
         if (!profile) return problem(req, res, 404, 'profile.not_found', 'No such person.');
         return res.json(profile);
     }));

@@ -50,7 +50,8 @@ async function startNetwork() {
     }
     function gitToken({ subject, caps = ['git.read', 'git.write'], ttl = 3600, type = 'git' } = {}) {
         const now = Math.floor(Date.now() / 1000);
-        return signJwt({ iss: issuer, sub: subject, actor_type: /^svc:/.test(subject) ? 'service' : 'user', aud: ['openvibe.git'], cap: caps, typ: type, purpose: type, iat: now, exp: now + ttl, jti: `rtk_${crypto.randomBytes(8).toString('hex')}` }, privateKey);
+        // type null: a service principal's client-credentials token, which carries no typ/purpose.
+        return signJwt({ iss: issuer, sub: subject, actor_type: /^svc:/.test(subject) ? 'service' : 'user', aud: ['openvibe.git'], cap: caps, ...(type == null ? {} : { typ: type, purpose: type }), iat: now, exp: now + ttl, jti: `rtk_${crypto.randomBytes(8).toString('hex')}` }, privateKey);
     }
     return { ...server, issuer, userToken, gitToken, requests: st.requests, _privateKey: privateKey };
 }

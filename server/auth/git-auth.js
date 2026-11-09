@@ -6,7 +6,9 @@
  *   1. A Git token made on the repository page: `git_` + 32 random bytes, stored only as a SHA-256 hash,
  *      scoped git.read / git.write, one hour by default. `POST /api/v1/tokens` (signed in) makes one.
  *   2. A typed Network token for audience openvibe.git: `typ`/`purpose` git, `cap` holding git.read or
- *      git.write, sub a person (usr_) or a service (svc:). Verified offline against the Network JWKS.
+ *      git.write, sub a person (usr_) or a service (svc:). A service's client-credentials token carries no
+ *      `typ`/`purpose`; its `actor_type` and `svc:` subject say it is a service, so it is accepted too.
+ *      Verified offline against the Network JWKS.
  *
  * Git sends the token as the Basic password (any username, or the token as the username, as GitHub clients do)
  * or as a Bearer. A public repository's read needs no password at all.
@@ -66,15 +68,17 @@ function decode(jwt) {
 }
 
 /**
- * A typed Network token for this audience: RS256, issuer, expiry, aud includes openvibe.git, typ and purpose
- * git, cap git.read and/or git.write, sub usr_… or svc:…. Returns the same shape as tokenRow.
+ * A typed Network token for this audience: RS256, issuer, expiry, aud includes openvibe.git, cap git.read and/or
+ * git.write, sub usr_… or svc:…. A service principal's token (client credentials, no typ) counts by its
+ * actor_type. Returns the same shape as tokenRow.
  */
 async function networkToken(config, raw) {
     const d = decode(raw);
     if (!d || !d.header || d.header.alg !== 'RS256') return null;
     const claims = d.claims || {};
     if (claims.iss !== config.networkIssuer) return null;
-    if (claims.typ !== 'git' && claims.purpose !== 'git') return null;
+    const service = claims.actor_type === 'service' || SVC_RE.test(String(claims.sub || ''));
+    if (!service && claims.typ !== 'git' && claims.purpose !== 'git') return null;
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
     if (!aud.includes(config.audience)) return null;
     const cap = Array.isArray(claims.cap) ? claims.cap.filter((c) => SCOPES.includes(c)) : [];
