@@ -216,7 +216,7 @@ async function commitFiles(owner, name, { branch, message, files, base, author, 
             await runGit(['read-tree', baseSha], { cwd: dir, env });
             for (const f of files) {
                 const sha = (await runGit(['hash-object', '-w', '--stdin'], { cwd: dir, input: f.buffer })).stdout.toString('utf8').trim();
-                await runGit(['update-index', '--add', '--cacheinfo', `100644,${sha},${f.path}`], { cwd: dir, env });
+                await runGit(['update-index', '--add', '--cacheinfo', '100644', sha, f.path], { cwd: dir, env });
             }
             const tree = (await runGit(['write-tree'], { cwd: dir, env })).stdout.toString('utf8').trim();
             const commit = (await runGit(['commit-tree', tree, '-p', baseSha, '-m', message], { cwd: dir, env })).stdout.toString('utf8').trim();
@@ -388,7 +388,7 @@ async function writeInitialCommit(owner, name, { files, message, defaultBranch =
         await runGit(['read-tree', '--empty'], { cwd: dir, env });
         for (const file of files) {
             const sha = (await runGit(['hash-object', '-w', '--stdin'], { cwd: dir, input: Buffer.from(file.content, 'utf8') })).stdout.toString('utf8').trim();
-            await runGit(['update-index', '--add', '--cacheinfo', `100644,${sha},${file.path}`], { cwd: dir, env });
+            await runGit(['update-index', '--add', '--cacheinfo', '100644', sha, file.path], { cwd: dir, env });
         }
         const tree = (await runGit(['write-tree'], { cwd: dir, env })).stdout.toString('utf8').trim();
         const commit = (await runGit(['commit-tree', tree, '-m', message], { cwd: dir, env })).stdout.toString('utf8').trim();

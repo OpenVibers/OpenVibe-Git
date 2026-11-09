@@ -70,13 +70,16 @@ const { boot } = require('./helpers/boot');
 
         // A contents write with no clone.
         const write = await t.get('/api/v1/repos/sam/api-demo/commits', {
-            as: sam, json: { branch: 'agent/run-1', message: 'Write the title without a clone', files: [{ path: 'notes.txt', content: 'made by the API\n' }] },
+            as: sam, json: { branch: 'agent/run-1', message: 'Write the title without a clone', files: [{ path: 'notes.txt', content: 'made by the API\n' }, { path: 'notes,two.txt', content: 'a comma in the name\n' }] },
         });
         assert.equal(write.status, 201);
         assert.match(write.json().sha, /^[0-9a-f]{40}$/);
         const readBack = await t.get('/api/v1/repos/sam/api-demo/blob?ref=agent/run-1&path=notes.txt');
         assert.equal(readBack.status, 200);
         assert.equal(readBack.json().text, 'made by the API\n');
+        const comma = await t.get('/api/v1/repos/sam/api-demo/blob?ref=agent/run-1&path=notes%2Ctwo.txt');
+        assert.equal(comma.status, 200);
+        assert.equal(comma.json().text, 'a comma in the name\n');
         const newCommit = await t.get(`/api/v1/repos/sam/api-demo/commit/${write.json().sha}`);
         assert.equal(newCommit.json().subject, 'Write the title without a clone');
 
