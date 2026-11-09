@@ -56,3 +56,9 @@ names in `X-OV-Subject`: `POST /api/v1/repos` (with `owner_username`), `GET /api
 A service never holds a person's password.
 
 G2 adds changes and review, compare, issues, blame and code search. See [the API and integration notes](docs/g2-review.md) for routes, capability grants, the AI-choices dependency, and recovery details.
+
+<!-- versions:start -->
+- openvibe-contracts: v0.356.0
+- openvibe-sdk: v0.108.0
+- openvibe-shared: v4.178.0
+<!-- versions:end -->
