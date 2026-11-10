@@ -73,5 +73,5 @@ G2 adds changes and review, compare, issues, blame and code search. See [the API
 <!-- versions:start -->
 - openvibe-contracts: v0.356.0
 - openvibe-sdk: v0.133.0
-- openvibe-shared: v4.163.0
+- openvibe-shared: v4.179.0
 <!-- versions:end -->
