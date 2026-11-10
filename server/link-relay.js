@@ -21,6 +21,9 @@ const OFFLINE_AFTER_MS = 30_000;
 const WATCH_MS = 25_000;
 const BROWSE_MS = 8_000;
 const TERMINAL = new Set(['done', 'refused', 'failed', 'expired']);
+// Before the clone runs: queued (on its way to one of the person's own computers) and waiting (that computer has
+// it and is asking them). Both end after the same two minutes; a clone already running is left to finish.
+const UNSTARTED = new Set(['queued', 'waiting', 'pending', 'approved']);
 
 const newOpaque = () => crypto.randomBytes(32).toString('base64url');
 const newID = (prefix) => `${prefix}_${crypto.randomBytes(12).toString('hex').toUpperCase().slice(0, 26)}`;
@@ -49,13 +52,14 @@ function createLinkRelay(ctx) {
         ...(progressOf(row) ? { progress: progressOf(row) } : {}),
         ...(row.path ? { path: row.path } : {}),
         ...(row.reason ? { reason: row.reason } : {}),
+        ...(row.machine_id ? { machine_id: row.machine_id } : {}),
     });
 
     const isExpired = (row) => Date.parse(row.expires_at) <= now();
 
     /** End a request past its two minutes: the row says expired and the clone's read token is revoked. */
     async function expire(row) {
-        await store.execute("UPDATE git_clone_requests SET state = 'expired', updated_at = now() WHERE id = ? AND state IN ('pending', 'approved')", [row.id]);
+        await store.execute("UPDATE git_clone_requests SET state = 'expired', updated_at = now() WHERE id = ? AND state IN ('queued', 'waiting', 'pending', 'approved')", [row.id]);
         const secret = cloneURLs.get(row.id);
         cloneURLs.delete(row.id);
         if (secret) await store.execute('UPDATE git_tokens SET revoked_at = now() WHERE id = ? AND revoked_at IS NULL', [secret.token_id]).catch(() => {});
@@ -67,7 +71,7 @@ function createLinkRelay(ctx) {
         const row = await store.maybe('SELECT * FROM git_clone_requests WHERE id = ?', [id]);
         if (!row) return null;
         if (!safeEqual(hashToken(token), row.token_hash)) return null;
-        if ((row.state === 'pending' || row.state === 'approved') && isExpired(row)) await expire(row);
+        if (UNSTARTED.has(row.state) && isExpired(row)) await expire(row);
         return row;
     }
 
@@ -96,10 +100,97 @@ function createLinkRelay(ctx) {
         return { request: cloneDoc({ id, repo_full: `${row.owner_username}/${row.name}`, state: 'pending', created_at: new Date(now()).toISOString(), expires_at: expires, progress: null, path: null, reason: null }), link };
     }
 
+    /**
+     * Clone to one of the person's own Link computers. The request rides the watch that computer already holds (the
+     * same poll the /machines pages browse through), so the person needs no terminal command; the computer asks its
+     * owner, and until they answer nothing is written there. The clone URL's short read token travels only to that
+     * machine: never to the page, never into the database.
+     */
+    async function createCloneToMachine({ viewer, row, machineId }) {
+        if (!viewer || !viewer.subject) {
+            throw Object.assign(new Error('Sign in to clone to your computer.'), { status: 401, code: 'auth.required' });
+        }
+        if (!repos.canView(row, viewer)) {
+            throw Object.assign(new Error('No such repository.'), { status: 404, code: 'repo.not_found' });
+        }
+        const machineRow = await store.maybe('SELECT * FROM git_machines WHERE id = ? AND subject = ?', [String(machineId || ''), viewer.subject]);
+        if (!machineRow) {
+            throw Object.assign(new Error('No such computer of yours.'), { status: 404, code: 'machine.not_found' });
+        }
+        if (!machineDoc(machineRow).online) {
+            throw Object.assign(new Error(`${machineRow.name} is not online: start Link there, then ask again.`), { status: 409, code: 'machine.offline' });
+        }
+        const id = store.newId('clr');
+        const token = newOpaque();
+        const expires = new Date(now() + CLONE_TTL_MS).toISOString();
+        const minted = await mintToken(store, { subject: viewer.subject, scopes: ['git.repo.read'], hours: 1, label: `clone ${row.owner_username}/${row.name}` });
+        const host = config.baseUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        const cloneURL = `https://x-access-token:${minted.token}@${host}/${row.owner_username}/${row.name}.git`;
+        await store.execute(
+            `INSERT INTO git_clone_requests (id, subject, repo_id, repo_full, state, token_hash, machine_id, created_at, expires_at, updated_at)
+             VALUES (?, ?, ?, ?, 'queued', ?, ?, now(), ?, now())`,
+            [id, viewer.subject, row.id, `${row.owner_username}/${row.name}`, hashToken(token), machineRow.id, expires],
+        );
+        cloneURLs.set(id, { url: cloneURL, token_id: minted.id });
+        const request = {
+            id: newID('req'), kind: 'clone', clone_id: id, repo: `${row.owner_username}/${row.name}`,
+            url: cloneURL, requested_by: viewer.username || viewer.subject, expires_at: expires,
+        };
+        const q = queue.get(machineRow.id) || [];
+        q.push(request);
+        queue.set(machineRow.id, q);
+        notify(machineRow.id, request);
+        return cloneDoc({
+            id, repo_full: `${row.owner_username}/${row.name}`, state: 'queued', machine_id: machineRow.id,
+            created_at: new Date(now()).toISOString(), expires_at: expires, progress: null, path: null, reason: null,
+        });
+    }
+
+    /**
+     * The machine's own report on a clone it was asked to run, over its one-time token: waiting (it is asking its
+     * owner), approved, cloning with git's percentage, done with the folder, refused or failed. Only the machine the
+     * request was addressed to can move it, and only in order.
+     */
+    async function machineCloneUpdate({ machineId, token, id, body }) {
+        const machineRow = await machineFor(machineId, token);
+        if (!machineRow) return null;
+        await touchMachine(machineId);
+        const row = await store.maybe('SELECT * FROM git_clone_requests WHERE id = ?', [id]);
+        if (!row || row.machine_id !== machineId) return null;
+        if (TERMINAL.has(row.state)) return cloneDoc(row);
+        if (UNSTARTED.has(row.state) && isExpired(row)) {
+            await expire(row);
+            return cloneDoc({ ...row, state: 'expired' });
+        }
+        const state = String(body.state || '');
+        const from = {
+            queued: ['waiting', 'approved', 'refused', 'failed'],
+            waiting: ['approved', 'cloning', 'refused', 'failed'],
+            approved: ['cloning', 'done', 'failed', 'refused'],
+            cloning: ['cloning', 'done', 'failed', 'refused'],
+        }[row.state] || [];
+        if (!from.includes(state)) return cloneDoc(row);
+        const progress = (state === 'cloning' || state === 'done') && body.progress && Number.isFinite(Number(body.progress.percent))
+            ? { percent: Math.max(0, Math.min(100, Math.round(Number(body.progress.percent)))), line: String(body.progress.line || '').slice(0, 200) }
+            : null;
+        const path = state === 'done' ? String(body.path || '').slice(0, 4096) : null;
+        const reason = (state === 'refused' || state === 'failed') ? String(body.reason || '').slice(0, 300) : null;
+        await store.execute(
+            `UPDATE git_clone_requests SET state = ?, progress = COALESCE(?, progress), path = COALESCE(?, path), reason = COALESCE(?, reason), updated_at = now() WHERE id = ?`,
+            [state, progress ? JSON.stringify(progress) : null, path, reason, id],
+        );
+        if (TERMINAL.has(state)) {
+            const secret = cloneURLs.get(id);
+            cloneURLs.delete(id);
+            if (secret) await store.execute('UPDATE git_tokens SET revoked_at = now() WHERE id = ? AND revoked_at IS NULL', [secret.token_id]).catch(() => {});
+        }
+        return cloneDoc({ ...row, state, progress: progress || row.progress, path: path || row.path, reason: reason || row.reason });
+    }
+
     async function getForPage({ id, subject }) {
         const row = await store.maybe('SELECT * FROM git_clone_requests WHERE id = ?', [id]);
         if (!row || row.subject !== subject) return null;
-        if ((row.state === 'pending' || row.state === 'approved') && isExpired(row)) await expire(row);
+        if (UNSTARTED.has(row.state) && isExpired(row)) await expire(row);
         return cloneDoc(row);
     }
 
@@ -107,7 +198,7 @@ function createLinkRelay(ctx) {
         const row = await loadForLink(id, token);
         if (!row) return null;
         const doc = cloneDoc(row);
-        if (row.state === 'pending' || row.state === 'approved') {
+        if (UNSTARTED.has(row.state)) {
             const secret = cloneURLs.get(id);
             if (secret) doc.clone_url = secret.url;
         }
@@ -196,7 +287,16 @@ function createLinkRelay(ctx) {
         if (!row) return null;
         await touchMachine(id);
         const q = queue.get(id);
-        if (q && q.length) return { online: true, request: q.shift() };
+        // A clone request that waited out its two minutes is never handed over: it is over, and the page says so.
+        while (q && q.length) {
+            const next = q.shift();
+            if (next.kind === 'clone') {
+                const clone = await store.maybe('SELECT * FROM git_clone_requests WHERE id = ?', [next.clone_id]);
+                if (!clone || TERMINAL.has(clone.state)) continue;
+                if (isExpired(clone)) { await expire(clone); continue; }
+            }
+            return { online: true, request: next };
+        }
         return await new Promise((resolve) => {
             const set = wake.get(id) || new Set();
             wake.set(id, set);
@@ -266,7 +366,7 @@ function createLinkRelay(ctx) {
     }
 
     return {
-        createClone, getForPage, linkGet, linkUpdate,
+        createClone, getForPage, linkGet, linkUpdate, createCloneToMachine, machineCloneUpdate,
         createMachine, machineHello, machineWatch, machineResult, listMachines, getMachine, browse,
         // For tests.
         CLONE_TTL_MS, OFFLINE_AFTER_MS,

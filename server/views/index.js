@@ -134,7 +134,7 @@ function repoTabs(row, active, ref) {
     return `<nav class="git-tabs" aria-label="Repository">${tabs.map(([key, label, href]) => `<a class="git-tab${active === key ? ' is-on' : ''}" href="${esc(href)}${key === 'commits' && ref ? qs({ ref }) : ''}"${active === key ? ' aria-current="page"' : ''}>${esc(label)}</a>`).join('')}</nav>`;
 }
 
-function repoHead({ row, viewer, starred, watching, forkOf }) {
+function repoHead({ row, viewer, starred, watching, forkOf, machines = null, cloneRequest = null }) {
     const signedIn = viewer && viewer.kind === 'user';
     const base = `/${row.owner_username}/${row.name}`;
     const starAction = signedIn
@@ -153,11 +153,43 @@ function repoHead({ row, viewer, starred, watching, forkOf }) {
     </div>
     <div class="git-repo-actions">${starAction}${watchAction}${signedIn ? `<form method="post" action="${base}/fork" class="git-inline"><button class="ovk-btn ovk-btn--ghost" type="submit">${icon('forward')} Fork <b>${row.forks}</b></button></form>` : `<a class="ovk-btn ovk-btn--ghost" href="/auth/login?next=${encodeURIComponent(base)}">${icon('forward')} Fork <b>${row.forks}</b></a>`}</div>
   </div>
-  ${getIt(row, signedIn)}
+  ${getIt(row, signedIn, machines, cloneRequest)}
 </header>`;
 }
 
-function getIt(row, signedIn) {
+/** One plain button per online Link computer; the offline ones say since when, and nothing is sent to them. */
+function machineChoices(full, machines) {
+    const online = machines.filter((m) => m.online);
+    const offline = machines.filter((m) => !m.online);
+    if (!online.length) {
+        return `<p>No Link computer is online right now. Start Link on your computer, then ask again.</p>
+      <form method="post" action="/${esc(full)}/clone" class="git-inline"><button class="ovk-btn ovk-btn--quiet" type="submit">${icon('computer')} Get a terminal command instead</button></form>
+      ${offline.length ? `<p class="muted">${offline.map((m) => `${esc(m.name)} is offline since ${esc(ago(m.offline_since || m.last_seen_at))}`).join(' · ')}</p>` : ''}`;
+    }
+    return `${online.map((m) => `<form method="post" action="/${esc(full)}/clone-to-machine" class="git-inline">
+        <input type="hidden" name="machine" value="${esc(m.id)}">
+        <button class="ovk-btn ovk-btn--primary" type="submit">${icon('computer')} Clone to ${esc(m.name)}</button>
+      </form>`).join('')}
+      ${offline.length ? `<p class="muted">${offline.map((m) => `${esc(m.name)} is offline since ${esc(ago(m.offline_since || m.last_seen_at))}`).join(' · ')}</p>` : ''}
+      <p class="muted"><a href="/machines">Your computers</a></p>`;
+}
+
+/** The plain words of a clone request's state; the progress line (git.js) uses the same ones. */
+function cloneWords(request) {
+    const words = {
+        queued: 'Sent to your computer…', waiting: 'Waiting for your answer in Link…',
+        pending: 'Waiting for your answer in Link…', approved: 'Approved; Link is starting git…',
+        cloning: 'Cloning…', done: 'Cloned.', refused: 'Refused in Link.', failed: 'The clone failed.',
+        expired: 'The request expired after two minutes.',
+    };
+    let text = words[request.state] || request.state || '';
+    if (request.progress && (request.state === 'cloning' || request.state === 'done')) text = `${request.progress.percent}% · ${request.progress.line}`;
+    if (request.state === 'done' && request.path) text = `Cloned into ${request.path}`;
+    if (request.reason) text = `${text} ${request.reason}`;
+    return text;
+}
+
+function getIt(row, signedIn, machines = null, cloneRequest = null) {
     const clone = `${row.owner_username}/${row.name}.git`;
     const full = `${row.owner_username}/${row.name}`;
     return `<details class="git-get" id="get">
@@ -173,10 +205,13 @@ function getIt(row, signedIn) {
     <div class="git-get-choice">
       <b>Clone to my computer</b>
       <p>OpenVibe Link asks you on your computer. The folder is inside the root you chose in Link, and the request ends after two minutes.</p>
-      ${signedIn
-        ? `<form method="post" action="/${esc(full)}/clone" class="git-inline"><button class="ovk-btn ovk-btn--primary" type="submit">${icon('computer')} Clone to my computer</button></form>`
-        : `<a class="ovk-btn" href="/auth/login?next=${encodeURIComponent('/' + full)}">${icon('computer')} Clone to my computer</a>`}
+      ${!signedIn
+        ? `<a class="ovk-btn" href="/auth/login?next=${encodeURIComponent('/' + full)}">${icon('computer')} Clone to my computer</a>`
+        : machines === null
+          ? `<form method="post" action="/${esc(full)}/clone" class="git-inline"><button class="ovk-btn ovk-btn--primary" type="submit">${icon('computer')} Clone to my computer</button></form>`
+          : machineChoices(full, machines)}
     </div>
+    ${cloneRequest ? `<p class="git-clone-line" data-clone-request="${esc(cloneRequest.id)}" data-clone-endpoint="/api/v1/repos/${esc(full)}/clone-to-machine/${esc(cloneRequest.id)}" role="status" aria-live="polite">${esc(cloneWords(cloneRequest))}</p>` : ''}
     <div class="git-get-choice">
       <b>Open in Codes</b>
       <p>A Codes session clones from our disk: no network, no GitHub quota. When this repository has a GitHub twin, Codes pushes there too.</p>
@@ -226,11 +261,11 @@ ${repoHead({ row, viewer, starred, watching, forkOf })}
 </div></div>`;
 }
 
-function repoPage({ row, viewer, starred, watching, forkOf, tree, readme, card, languages, isOwner = false }) {
+function repoPage({ row, viewer, starred, watching, forkOf, tree, readme, card, languages, isOwner = false, machines = null, cloneRequest = null }) {
     const base = `/${row.owner_username}/${row.name}`;
     const crumbs = [{ name: row.name, path: '' }, ...String(tree.path || '').split('/').filter(Boolean).map((seg, i, all) => ({ name: seg, path: all.slice(0, i + 1).join('/') }))];
     return `<div class="git-repo">
-${repoHead({ row, viewer, starred, watching, forkOf })}
+${repoHead({ row, viewer, starred, watching, forkOf, machines, cloneRequest })}
 <div class="git-repo-grid">
   <div class="git-repo-main">
     ${repoTabs(row, 'code')}
