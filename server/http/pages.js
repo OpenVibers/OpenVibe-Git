@@ -21,13 +21,14 @@ const express = require('express');
 const contracts = require('openvibe-contracts');
 const { send } = require('../render/layout');
 const views = require('../views');
+const machineViews = require('../views/machine');
 const { viewerOf } = require('./identity');
 const { esc } = require('../render/html');
 const { renderMarkdown } = require('../render/markdown');
 const { validRef, validPath } = require('../git/refs');
 
 function createPageRoutes(ctx) {
-    const { config, repos, git, github, mirrors, insights, store } = ctx;
+    const { config, repos, git, github, mirrors, insights, store, relay } = ctx;
     const r = express.Router();
     r.use(express.urlencoded({ extended: false, limit: '256kb' }));
     const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
@@ -151,6 +152,90 @@ function createPageRoutes(ctx) {
         return page(req, res, views.profilePage({ profile }), { title: `@${profile.username}`, description: `@${profile.username}'s public repositories on OpenVibe Git.` });
     }));
 
+    // ── Your computers, published through Link (G3) ──────────
+    const machineFor = async (req, res) => {
+        const me = viewer(req);
+        if (!me) { res.redirect(303, loginTo('/machines')); return null; }
+        const machine = await relay.getMachine({ id: String(req.params.machine || ''), subject: me.subject });
+        if (!machine) { page(req, res, views.notFound(), { status: 404, title: 'Not found' }); return null; }
+        return machine;
+    };
+    const repoAt = (machine, name) => (machine.repos || []).find((r) => r.name === String(name || ''));
+    const machineResult = (req, res, machine, repo, out, render) => {
+        if (out.state === 'offline') return page(req, res, machineViews.machineRepoPage({ machine: out.machine || machine, repo, ref: '', offline: true }), { status: 200, title: `${repo.name} · ${machine.name}` });
+        if (out.state === 'missing') return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        if (out.state === 'timeout') return page(req, res, machineViews.machineRepoPage({ machine: out.machine || machine, repo, ref: '', error: 'The computer did not answer in time. It is online; try again.' }), { status: 504, title: `${repo.name} · ${machine.name}` });
+        return page(req, res, render(out.result), { title: `${repo.name} · ${machine.name}`, index: false });
+    };
+
+    r.get('/machines', h(async (req, res) => {
+        const me = viewer(req);
+        if (!me) return res.redirect(303, loginTo('/machines'));
+        return page(req, res, machineViews.machinesPage({ viewer: me, machines: await relay.listMachines({ subject: me.subject }) }), { title: 'Your computers', index: false });
+    }));
+
+    r.post('/machines', h(async (req, res) => {
+        if (!guard(req, res)) return undefined;
+        try {
+            const out = await relay.createMachine({ viewer: viewer(req), name: req.body.name });
+            return page(req, res, machineViews.machineConnectPage({ machine: out.machine, link: out.link }), { title: `Connect ${out.machine.name}`, index: false });
+        } catch (err) {
+            return page(req, res, machineViews.machinesPage({ viewer: viewer(req), machines: await relay.listMachines({ subject: viewer(req).subject }), error: err.message }), { status: 422, title: 'Your computers', index: false });
+        }
+    }));
+
+    r.get('/machines/:machine', h(async (req, res) => {
+        const machine = await machineFor(req, res);
+        if (!machine) return undefined;
+        return page(req, res, machineViews.machinePage({ machine, repos: machine.repos || [] }), { title: machine.name, index: false });
+    }));
+
+    r.get('/machines/:machine/:repo/tree', h(async (req, res) => {
+        const machine = await machineFor(req, res);
+        if (!machine) return undefined;
+        const repo = repoAt(machine, req.params.repo);
+        if (!repo) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        const ref = String(req.query.ref || repo.branch || 'main');
+        const pathAt = String(req.query.path || '');
+        if (!validRef(ref) || !validPath(pathAt)) return page(req, res, views.message({ title: 'Not a ref or path', text: 'That ref or path is not something this server reads.', link: { href: `/machines/${machine.id}/${repo.name}`, label: 'Back to the repository' } }), { status: 422 });
+        const out = await relay.browse({ machineId: machine.id, kind: 'tree', repo: repo.name, ref, path: pathAt });
+        return machineResult(req, res, machine, repo, out, (result) => machineViews.machineRepoPage({ machine, repo, ref, path: pathAt, entries: result.entries || [] }));
+    }));
+
+    r.get('/machines/:machine/:repo/blob', h(async (req, res) => {
+        const machine = await machineFor(req, res);
+        if (!machine) return undefined;
+        const repo = repoAt(machine, req.params.repo);
+        if (!repo) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        const ref = String(req.query.ref || repo.branch || 'main');
+        const pathAt = String(req.query.path || '');
+        if (!validRef(ref) || !validPath(pathAt) || !pathAt) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        const out = await relay.browse({ machineId: machine.id, kind: 'file', repo: repo.name, ref, path: pathAt });
+        return machineResult(req, res, machine, repo, out, (result) => machineViews.machineFilePage({ machine, repo, ref, path: pathAt, blob: result }));
+    }));
+
+    r.get('/machines/:machine/:repo/commits', h(async (req, res) => {
+        const machine = await machineFor(req, res);
+        if (!machine) return undefined;
+        const repo = repoAt(machine, req.params.repo);
+        if (!repo) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        const ref = String(req.query.ref || repo.branch || 'main');
+        const pathAt = String(req.query.path || '');
+        if (!validRef(ref) || !validPath(pathAt)) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        const out = await relay.browse({ machineId: machine.id, kind: 'log', repo: repo.name, ref, path: pathAt });
+        return machineResult(req, res, machine, repo, out, (result) => machineViews.machineCommitsPage({ machine, repo, ref, path: pathAt, commits: result.commits || [] }));
+    }));
+
+    r.get('/machines/:machine/:repo', h(async (req, res) => {
+        const machine = await machineFor(req, res);
+        if (!machine) return undefined;
+        const repo = repoAt(machine, req.params.repo);
+        if (!repo) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        const ref = repo.branch || 'main';
+        const out = await relay.browse({ machineId: machine.id, kind: 'tree', repo: repo.name, ref, path: '' });
+        return machineResult(req, res, machine, repo, out, (result) => machineViews.machineRepoPage({ machine, repo, ref, path: '', entries: result.entries || [] }));
+    }));
+
     // ── A repository ────────────────────────────────────────
     r.get('/:owner/:name', h(async (req, res) => {
         const row = await rowFor(req, res);
@@ -160,6 +245,18 @@ function createPageRoutes(ctx) {
         const [tree, context] = await Promise.all([git.readTree(row.owner_username, row.name, ref, '').catch(() => null), repoContext(req, row)]);
         const readme = tree ? await readReadme(row, ref) : null;
         return page(req, res, views.repoPage({ row, viewer: viewer(req), tree: tree || { path: '', entries: [] }, readme, ...context }), meta(req, row));
+    }));
+
+    r.post('/:owner/:name/clone', h(async (req, res) => {
+        if (!guard(req, res)) return undefined;
+        const row = await rowFor(req, res);
+        if (!row) return undefined;
+        try {
+            const out = await relay.createClone({ viewer: viewer(req), row });
+            return page(req, res, machineViews.clonePage({ row, request: out.request, link: out.link }), { title: `Clone ${row.owner_username}/${row.name} to your computer`, index: false });
+        } catch (err) {
+            return page(req, res, views.message({ title: 'The clone request was not made', text: err.message, link: { href: `/${row.owner_username}/${row.name}`, label: 'Back to the repository' } }), { status: err.status || 422 });
+        }
     }));
 
     r.get('/:owner/:name/tree', h(async (req, res) => {

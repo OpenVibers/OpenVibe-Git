@@ -45,6 +45,30 @@
         }
     });
 
+    // A clone request's progress line: the page polls the row, Link posts each step. The page works without this
+    // file: the request is still made (the form is a plain POST) and the terminal command is on the page.
+    const line = document.querySelector('[data-clone-request]');
+    if (line) {
+        const id = line.getAttribute('data-clone-request');
+        const words = { pending: 'Waiting for your answer in Link…', approved: 'Approved; Link is starting git…', cloning: 'Cloning…', done: 'Cloned.', refused: 'Refused in Link.', failed: 'The clone failed.', expired: 'The request expired after two minutes.' };
+        const tick = async () => {
+            try {
+                const res = await fetch(`/api/v1/clone-requests/${encodeURIComponent(id)}`, { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const data = await res.json();
+                const req = data.request || {};
+                let text = words[req.state] || req.state || '';
+                if (req.progress && (req.state === 'cloning' || req.state === 'done')) text = `${req.progress.percent}% · ${req.progress.line}`;
+                if (req.state === 'done' && req.path) text = `Cloned into ${req.path}`;
+                if (req.reason) text = `${text} ${req.reason}`;
+                line.textContent = text;
+                if (['done', 'refused', 'failed', 'expired'].includes(req.state)) return;
+            } catch { /* the next tick tries again */ }
+            setTimeout(tick, 1500);
+        };
+        setTimeout(tick, 600);
+    }
+
     document.addEventListener('click', (event) => {
         const toggle = event.target.closest('[data-git-diff-toggle]');
         if (!toggle) return;

@@ -34,6 +34,7 @@ function home({ viewer, stats, trending = [], activity = [], official = [], base
     <div class="git-actions">
       <a class="ovk-btn ovk-btn--primary" href="${signedIn ? '/new' : '/auth/login?next=%2Fnew'}">${icon('plus')} New repository</a>
       <a class="ovk-btn ovk-btn--ghost" href="/explore">${icon('search')} Explore</a>
+      ${signedIn ? `<a class="ovk-btn ovk-btn--ghost" href="/machines">${icon('computer')} Your computers</a>` : ''}
     </div>
   </div>
   <div class="git-hero-motif" role="img" aria-label="A repository, its branch, and a clone to a computer">
@@ -152,11 +153,11 @@ function repoHead({ row, viewer, starred, watching, forkOf }) {
     </div>
     <div class="git-repo-actions">${starAction}${watchAction}${signedIn ? `<form method="post" action="${base}/fork" class="git-inline"><button class="ovk-btn ovk-btn--ghost" type="submit">${icon('forward')} Fork <b>${row.forks}</b></button></form>` : `<a class="ovk-btn ovk-btn--ghost" href="/auth/login?next=${encodeURIComponent(base)}">${icon('forward')} Fork <b>${row.forks}</b></a>`}</div>
   </div>
-  ${getIt(row)}
+  ${getIt(row, signedIn)}
 </header>`;
 }
 
-function getIt(row) {
+function getIt(row, signedIn) {
     const clone = `${row.owner_username}/${row.name}.git`;
     const full = `${row.owner_username}/${row.name}`;
     return `<details class="git-get" id="get">
@@ -171,8 +172,10 @@ function getIt(row) {
     </div>
     <div class="git-get-choice">
       <b>Clone to my computer</b>
-      <p>OpenVibe Link opens on your computer and asks you to approve the clone. The folder is yours; pushes go to this repository.</p>
-      <a class="ovk-btn" href="openvibe-link://clone?repo=${encodeURIComponent(full)}">${icon('computer')} Open in Link</a>
+      <p>OpenVibe Link asks you on your computer. The folder is inside the root you chose in Link, and the request ends after two minutes.</p>
+      ${signedIn
+        ? `<form method="post" action="/${esc(full)}/clone" class="git-inline"><button class="ovk-btn ovk-btn--primary" type="submit">${icon('computer')} Clone to my computer</button></form>`
+        : `<a class="ovk-btn" href="/auth/login?next=${encodeURIComponent('/' + full)}">${icon('computer')} Clone to my computer</a>`}
     </div>
     <div class="git-get-choice">
       <b>Open in Codes</b>
