@@ -112,4 +112,23 @@ async function runText(args, opts) {
     return r.stdout.toString('utf8');
 }
 
-module.exports = { runGit, runText, configEnv, childEnv, GitError, FIXED_ENV };
+/**
+ * A streaming run (git archive): the caller pipes child.stdout and ends it. Same rules as runGit — an
+ * argument array, no shell, the fixed environment — plus a timeout that kills the child. The caller owns
+ * the child: kill it when the reader goes away.
+ */
+function spawnGit(args, { cwd, env, timeoutMs = 120_000 } = {}) {
+    if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
+        throw new TypeError('spawnGit: args must be an array of strings');
+    }
+    const child = spawn('git', args, { cwd, env: childEnv(env), shell: false, windowsHide: true });
+    const timer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch { /* already gone */ }
+    }, timeoutMs);
+    timer.unref();
+    child.on('close', () => clearTimeout(timer));
+    child.on('error', () => clearTimeout(timer));
+    return child;
+}
+
+module.exports = { runGit, runText, spawnGit, configEnv, childEnv, GitError, FIXED_ENV };

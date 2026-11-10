@@ -5,7 +5,7 @@ const { runGit } = require('./git/run');
 const { fail } = plumbing;
 const text = (v, max, required = true) => { if (typeof v !== 'string' || v.length > max || (required && !v.trim())) throw fail(422, 'Invalid text'); return v.trim(); };
 function createReviews(ctx, services) {
-    const { store: s, repos, git } = ctx;
+    const { store: s, repos, git, checks } = ctx;
     let timer, running = false;
     const actorId = (a) => a && (a.on_behalf_of || a.subject);
     const writable = (r, a) => !!a && a.scopes.has('git.repo.write') && repos.isOwner(r, { subject: actorId(a) });
@@ -71,7 +71,9 @@ function createReviews(ctx, services) {
         const comments = await s.many('SELECT * FROM git_change_comments WHERE change_id = ? ORDER BY created_at', [c.id]);
         const approvals = await s.many('SELECT * FROM git_change_reviews WHERE change_id = ? AND head_sha = ?', [c.id,diff.head]);
         const summary = await s.maybe('SELECT result FROM git_change_summaries WHERE change_id = ? AND head_sha = ? AND model = ?', [c.id,diff.head,r.review_model || '']);
-        return { change: c, diff, comments, approvals, checks: [], checks_label: 'No checks', summary: summary ? summary.result : null };
+        // A fork's head is read from the fork (its CI posts there); the required list is the target's.
+        const verdict = await checks.mergeable(r, diff.head, { repoId: source.id });
+        return { change: c, diff, comments, approvals, ...verdict, summary: summary ? summary.result : null };
     }
     async function action(r, kind, item, op, body, a, viewer) {
         auth(a);
@@ -109,6 +111,9 @@ function createReviews(ctx, services) {
                 write(r,a);
                 const frozen = await plumbing.compare(r,item.base_ref,item.head_ref,source,true);
                 if (frozen.head !== head) throw fail(409,'Head changed while reading diff');
+                // Required checks gate the merge; an empty list merges as before.
+                const verdict = await checks.mergeable(r, head, { repoId: source.id });
+                if (!verdict.mergeable) throw fail(409, 'Required checks are not passing');
                 await retain(r,item,frozen);
                 const sha = await plumbing.merge(r,source,item,body.method || 'merge',head,a,frozen.base);
                 await s.execute("UPDATE git_changes SET state = 'merged', head_sha = ?, merge_sha = ?, closed_at = ? WHERE id = ?", [head,sha,s.iso(),item.id]);

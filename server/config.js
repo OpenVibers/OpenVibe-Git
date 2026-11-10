@@ -40,6 +40,7 @@ function load(env = process.env) {
             maxPushBytes: int(env.GIT_MAX_PUSH_BYTES, 512 * 1024 * 1024),
             maxRepoBytes: int(env.GIT_MAX_REPO_BYTES, 3 * 1024 * 1024 * 1024),
             maxFileBytes: int(env.GIT_MAX_FILE_BYTES, 2 * 1024 * 1024),
+            maxArchiveBytes: int(env.GIT_MAX_ARCHIVE_BYTES, 256 * 1024 * 1024),
         },
 
         // OpenVibe.Network: SSO (OAuth2 + PKCE), the JWKS for typed git tokens, and the account events.

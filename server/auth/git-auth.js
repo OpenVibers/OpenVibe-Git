@@ -17,7 +17,7 @@ const crypto = require('node:crypto');
 const { createJwksClient } = require('openvibe-sdk/auth');
 
 const TOKEN_PREFIX = 'git_';
-const SCOPES = Object.freeze(['git.repo.read', 'git.repo.write']);
+const SCOPES = Object.freeze(['git.repo.read', 'git.repo.write', 'git.checks.write']);
 const USER_RE = /^usr_[0-9A-HJKMNP-TV-Z]{26}$/;
 const SVC_RE = /^svc:[a-z][a-z0-9-]{1,39}$/;
 
@@ -33,7 +33,7 @@ const newToken = () => `${TOKEN_PREFIX}${crypto.randomBytes(32).toString('base64
 /** Make a Git token; the raw value is returned once and never stored. */
 async function mintToken(store, { subject, actorType = 'user', scopes = ['git.repo.read'], hours = 1, label = null }) {
     const wanted = [...new Set((Array.isArray(scopes) ? scopes : [scopes]).filter((s) => SCOPES.includes(s)))];
-    if (!wanted.length) throw new Error('a token needs git.repo.read or git.repo.write');
+    if (!wanted.length) throw new Error('a token needs git.repo.read, git.repo.write or git.checks.write');
     const raw = newToken();
     const id = store.newId('tok');
     const expiresAt = new Date(store.now() + Math.max(1, Math.min(24 * 30, Number(hours) || 1)) * 3600_000).toISOString();

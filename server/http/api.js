@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * /api/v1: repositories, browsing, stars and forks, contents writes, clone tokens, the home numbers and the
- * GitHub webhook. Everything a page shows is here too; nothing here needs a browser.
+ * /api/v1: repositories, browsing, archives, stars and forks, contents writes, commit statuses, clone
+ * tokens, the home numbers and the GitHub webhook. Everything a page shows is here too; nothing here needs a browser.
  *
  * Public reads need no sign-in. A write needs the session or a token with git.repo.write. A private repository
  * answers 404 to anyone who may not see it, never 403: its existence is not public.
@@ -11,6 +11,7 @@ const express = require('express');
 const contracts = require('openvibe-contracts');
 const { callerOf, viewerFrom } = require('./identity');
 const { mintToken } = require('../auth/git-auth');
+const { serveArchive } = require('../archive');
 
 const problem = (req, res, status, code, detail) => contracts.http.sendProblem(res, status, code, { detail, ctx: req.ov });
 const fail = (req, res, err) => problem(req, res, err.status || 500, err.code || 'request.failed', err.status ? err.message : undefined);
@@ -18,7 +19,7 @@ const fail = (req, res, err) => problem(req, res, err.status || 500, err.code ||
 function boolParam(v) { return v === true || v === '1' || v === 'true' || v === 'yes'; }
 
 function createApi(ctx) {
-    const { config, repos, mirrors, git, insights, store, sso } = ctx;
+    const { config, repos, mirrors, git, insights, store, sso, checks, archive, log } = ctx;
     const r = express.Router();
     const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
     // One identity read per request: the session, or a token (a person's or a service's, and for a service the
@@ -186,6 +187,14 @@ function createApi(ctx) {
         return res.end(blob.data);
     }));
 
+    r.get('/repos/:owner/:name/archive/*', h(async (req, res) => {
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
+        await serveArchive(archive, req, res, found.row, req.params[0], {
+            log, fail: (status, message) => problem(req, res, status, 'archive.not_found', message),
+        });
+    }));
+
     r.get('/repos/:owner/:name/commits', h(async (req, res) => {
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
@@ -208,6 +217,51 @@ function createApi(ctx) {
             ...commit, repo: `${found.row.owner_username}/${found.row.name}`, subject: String(commit.message || '').split('\n')[0],
             author: { ...commit.author, username: commit.author.username || null },
         });
+    }));
+
+    // ── Commit statuses ───────────────────────────────────
+    r.get('/repos/:owner/:name/commits/:sha/statuses', h(async (req, res) => {
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
+        try {
+            const sha = checks.cleanSha(req.params.sha);
+            const statuses = await checks.latest(found.row.id, sha);
+            return res.json({ repo: `${found.row.owner_username}/${found.row.name}`, sha, state: checks.combined(statuses), statuses });
+        } catch (err) { return fail(req, res, err); }
+    }));
+
+    r.post('/repos/:owner/:name/commits/:sha/statuses', h(async (req, res) => {
+        const caller = await callerFor(req);
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
+        if (!caller) return problem(req, res, 401, 'auth.required', 'A service token with git.checks.write reports a status.');
+        if (!caller.scopes.has('git.checks.write')) return problem(req, res, 403, 'token.scope', 'This token may not report checks (git.checks.write).');
+        const who = actingAs(caller);
+        if (caller.actor_type !== 'service' && !repos.isOwner(found.row, who)) return problem(req, res, 403, 'repo.forbidden', 'Only the owner or a checks service may report.');
+        try {
+            const sha = checks.cleanSha(req.params.sha);
+            const status = await checks.record(found.row.id, sha, req.body, caller.subject);
+            await repos.audit(who, 'git.status', found.row, { sha, context: status.context, state: status.state, via: caller.actor_type === 'service' ? caller.subject : 'api' }, req.ip);
+            return res.status(201).json(status);
+        } catch (err) { return fail(req, res, err); }
+    }));
+
+    r.get('/repos/:owner/:name/required-checks', h(async (req, res) => {
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
+        return res.json({ repo: `${found.row.owner_username}/${found.row.name}`, required_checks: checks.requiredFor(found.row) });
+    }));
+
+    r.post('/repos/:owner/:name/required-checks', h(async (req, res) => {
+        const caller = await callerFor(req);
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
+        if (!caller || !repos.isOwner(found.row, actingAs(caller))) return problem(req, res, 403, 'repo.forbidden', 'Only the owner can require checks.');
+        try {
+            const required = await checks.setRequired(found.row, (req.body || {}).contexts ?? (req.body || {}).required_checks);
+            await repos.audit(actingAs(caller), 'git.required_checks', found.row, { required_checks: required }, req.ip);
+            return res.json({ repo: `${found.row.owner_username}/${found.row.name}`, required_checks: required });
+        } catch (err) { return fail(req, res, err); }
     }));
 
     r.get('/repos/:owner/:name/branches', h(async (req, res) => {

@@ -6,7 +6,10 @@ JSON routes below `/api/v1/repos/:owner/:name`:
 
 - `GET /compare/:base...:head`: commits (up to 200), files (up to 300), added/removed counts and unified lines with old/new numbers. Branch slashes can be percent-encoded.
 - `GET|POST /changes`: list or create `{title, body?, base_ref, head_ref, source_repo?}`; source is `owner/name`, same repo or its fork family.
-- `GET /changes/:number`: change, diff, comments, approvals for the current SHA, checks and cached summary.
+- `GET /changes/:number`: change, diff, comments, approvals for the current SHA, checks (`checks`, `checks_label`, combined `state`, per-context `required`, `mergeable`) and cached summary.
+- `GET|POST /commits/:sha/statuses`: the latest status per context, or report `{context, state: pending|success|failure|error, description?, target_url?}` with a typed Network service token holding `git.checks.write`.
+- `GET|POST /required-checks`: the contexts that must be green before a change merges (`{contexts: [...]}`), empty by default; merge is 409 while one is missing or not green.
+- `GET /archive/<ref>.tar.gz` (page and API): a streamed gzip tarball of the ref, stable for a tag; the ETag is the commit. See README for the pin form.
 - `POST /changes/:number/comments`: `{head_sha,path,line,side:"old"|"new",message}`.
 - `POST /changes/:number/approve`: `{head_sha}`.
 - `POST /changes/:number/merge`: `{head_sha,method:"merge"|"squash"|"rebase"}`; conflicts are 409 with `files`.
@@ -24,7 +27,7 @@ Community uses the existing `community.comment.write` and `community.comment.mod
 
 Network needs `network.notifications.push` and `identity.subject.resolve`. Notifications address the change author, repository owner and watchers, excluding the actor and checking current visibility before delivery. These scopes must be granted to the Git service principal before deployment; this job does not alter production grants.
 
-AI needs `ai.run.create` and `ai.run.read`, plus the AI-choices API from the concurrent AI-choices job (Contracts #389). G2 checks `GET /api/v1/tasks` for `ai.generate` before posting a run with `{workflow:"ai.generate",choice:{model,source:"openvibe"},on_behalf_of,input}`. Older AI fails closed, without silently using a different model. Local tests use mock runs; no paid calls were made. Run currently has job APIs but no repository/head-commit check lookup: the slot says **No checks**.
+AI needs `ai.run.create` and `ai.run.read`, plus the AI-choices API from the concurrent AI-choices job (Contracts #389). G2 checks `GET /api/v1/tasks` for `ai.generate` before posting a run with `{workflow:"ai.generate",choice:{model,source:"openvibe"},on_behalf_of,input}`. Older AI fails closed, without silently using a different model. Local tests use mock runs; no paid calls were made. Run currently has job APIs but no repository/head-commit check lookup; until it posts statuses, the checks intake copies GitHub's check-runs for mirrored repositories (off in drill mode, two minutes per repository, only when a head moved), and the slot says **No checks** only when nothing was reported.
 
 ## Merge and maintenance
 
