@@ -94,5 +94,5 @@ Link's own `/api/v1/link/clone-requests/:id` and `/api/v1/link/machines/:id/{hel
 <!-- versions:start -->
 - openvibe-contracts: v0.384.0
 - openvibe-sdk: v0.133.0
-- openvibe-shared: v4.179.0
+- openvibe-shared: v4.183.0
 <!-- versions:end -->
