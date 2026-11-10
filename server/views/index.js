@@ -192,7 +192,7 @@ function cloneWords(request) {
 function getIt(row, signedIn, machines = null, cloneRequest = null) {
     const clone = `${row.owner_username}/${row.name}.git`;
     const full = `${row.owner_username}/${row.name}`;
-    return `<details class="git-get" id="get">
+    return `<details class="git-get" id="get"${cloneRequest ? ' open' : ''}>
   <summary class="ovk-btn ovk-btn--primary">${icon('download')} Get it <span class="git-get-caret">${icon('down')}</span></summary>
   <div class="git-sheet">
     <h2>Get this repository</h2>
