@@ -2,7 +2,8 @@
 
 /**
  * GitHub, read only: the repository card (stars, open issues and PRs, the last CI state), the metadata a
- * mirror is created from, and the signature check on GitHub's push webhook.
+ * mirror is created from, the open PR heads and check-runs the checks intake copies, and the signature check on
+ * GitHub's push webhook.
  *
  * Every reading is cached for ten minutes (config.github.cacheMs), so a card costs our quota once per ten
  * minutes, not once per view. The API token (for the OpenVibers repositories) is sent only to
@@ -224,6 +225,52 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return all;
     }
 
+    /**
+     * The open pull requests' heads: [{ number, head_sha }]. One REST call per page (a few at most); the
+     * checks intake calls this, then asks about the check-runs of the heads that moved only.
+     */
+    async function openPulls(full) {
+        if (!FULL_RE.test(String(full || ''))) return [];
+        const [owner, name] = String(full).split('/');
+        const out = [];
+        let url = `${config.github.apiUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls?state=open&per_page=100`;
+        for (let page = 0; page < 3 && url; page += 1) {
+            const res = await fetchImpl(url, { headers: headers(), signal: AbortSignal.timeout(15_000) });
+            if (!res.ok) {
+                const err = new Error(`GitHub ${res.status} for ${full} pulls`);
+                err.status = res.status;
+                throw err;
+            }
+            const batch = await res.json();
+            if (!Array.isArray(batch)) break;
+            for (const pr of batch) {
+                if (pr && pr.head && /^[0-9a-f]{40}$/i.test(pr.head.sha || '')) out.push({ number: pr.number, head_sha: String(pr.head.sha).toLowerCase() });
+            }
+            if (batch.length < 100) break;
+            // The next page stays on the API origin (nextLink refuses anything else).
+            url = nextLink(res.headers && typeof res.headers.get === 'function' ? res.headers.get('link') : null);
+        }
+        return out;
+    }
+
+    /** The check-runs GitHub reports for one commit (at most 100): the checks intake copies these. */
+    async function checkRuns(full, sha) {
+        if (!FULL_RE.test(String(full || ''))) return [];
+        if (!/^[0-9a-f]{40}$/i.test(String(sha || ''))) return [];
+        const [owner, name] = String(full).split('/');
+        const res = await fetchImpl(
+            `${config.github.apiUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits/${encodeURIComponent(String(sha).toLowerCase())}/check-runs?per_page=100`,
+            { headers: headers(), signal: AbortSignal.timeout(15_000) },
+        );
+        if (!res.ok) {
+            const err = new Error(`GitHub ${res.status} for ${full} check-runs`);
+            err.status = res.status;
+            throw err;
+        }
+        const body = await res.json();
+        return Array.isArray(body && body.check_runs) ? body.check_runs : [];
+    }
+
     /** GitHub's X-Hub-Signature-256 over the raw body, constant time. */
     function signatureOk(rawBody, signature) {
         const secret = config.github.webhookSecret;
@@ -234,7 +281,7 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return a.length === b.length && crypto.timingSafeEqual(a, b);
     }
 
-    return { parseGithubUrl, card, meta, probe, orgRepos, signatureOk, _cache: cache };
+    return { parseGithubUrl, card, meta, probe, orgRepos, openPulls, checkRuns, signatureOk, _cache: cache };
 }
 
 module.exports = { createGithubClient, parseGithubUrl, parseRefs, pktLine, FULL_RE };

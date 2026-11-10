@@ -12,6 +12,7 @@
  *   /:owner/:name/tree         a directory (ref and path in the query)
  *   /:owner/:name/blob         a file, highlighted on the server, with line links
  *   /:owner/:name/raw          its bytes
+ *   /:owner/:name/archive/<ref>.tar.gz  a gzip tarball of a ref, stable for a tag
  *   /:owner/:name/commits      history (optionally of one path)
  *   /:owner/:name/commit/:sha  one commit and its diff
  *   /:owner/:name/branches · tags · releases · contributors · insights
@@ -26,9 +27,10 @@ const { viewerOf } = require('./identity');
 const { esc } = require('../render/html');
 const { renderMarkdown } = require('../render/markdown');
 const { validRef, validPath } = require('../git/refs');
+const { serveArchive } = require('../archive');
 
 function createPageRoutes(ctx) {
-    const { config, repos, git, github, mirrors, insights, store, relay } = ctx;
+    const { config, repos, git, github, mirrors, insights, store, relay, archive, log } = ctx;
     const r = express.Router();
     r.use(express.urlencoded({ extended: false, limit: '256kb' }));
     const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
@@ -330,6 +332,14 @@ function createPageRoutes(ctx) {
         return res.end(blob.data);
     }));
 
+    r.get('/:owner/:name/archive/*', h(async (req, res) => {
+        const row = await rowFor(req, res);
+        if (!row) return undefined;
+        await serveArchive(archive, req, res, row, req.params[0], {
+            log, fail: (status, message) => res.status(status).type('text/plain').send(`${message}\n`),
+        });
+    }));
+
     r.get('/:owner/:name/commits', h(async (req, res) => {
         const row = await rowFor(req, res);
         if (!row) return undefined;
@@ -452,7 +462,7 @@ function createPageRoutes(ctx) {
         const official = await repos.official();
         const lines = [
             '# OpenVibe Git', '', '> Git for OpenVibe: host code with your OpenVibe account, browse it, mirror GitHub, and clone it to your computer with Link.', '',
-            'Every page is server-rendered. A public repository is readable at /<owner>/<name>; its files at /<owner>/<name>/tree and /<owner>/<name>/blob (ref and path are query parameters). The API is /api/v1/repos.', '',
+            'Every page is server-rendered. A public repository is readable at /<owner>/<name>; its files at /<owner>/<name>/tree and /<owner>/<name>/blob (ref and path are query parameters); a ref as a tarball at /<owner>/<name>/archive/<ref>.tar.gz. The API is /api/v1/repos.', '',
             '## Official repositories', '',
             ...official.map((o) => `- [${o.full_name}](${config.baseUrl.replace(/\/+$/, '')}/${o.full_name}): ${o.description || 'The OpenVibe projects.'}`), '',
         ];
@@ -474,6 +484,8 @@ function createPageRoutes(ctx) {
                 '/api/v1/repos/{owner}/{name}/tree': { get: { summary: 'A directory at a ref', responses: { 200: { description: 'Tree' } } } },
                 '/api/v1/repos/{owner}/{name}/blob': { get: { summary: 'A file at a ref', responses: { 200: { description: 'Blob' } } } },
                 '/api/v1/repos/{owner}/{name}/commits': { get: { summary: 'History' }, post: { summary: 'Write a branch and files without a clone', responses: { 201: { description: 'The new commit' } } } },
+                '/api/v1/repos/{owner}/{name}/archive/{ref}.tar.gz': { get: { summary: 'A gzip tarball of a ref (a tag answers the same bytes)', responses: { 200: { description: 'The tarball' } } } },
+                '/api/v1/repos/{owner}/{name}/commits/{sha}/statuses': { get: { summary: 'The latest status per context for a commit', responses: { 200: { description: 'Statuses' } } }, post: { summary: 'Report a status (git.checks.write)', responses: { 201: { description: 'The status' } } } },
                 '/api/v1/repos/{owner}/{name}/insights': { get: { summary: 'Views, clones, stars and commits per week', responses: { 200: { description: 'Insights' } } } },
                 '/api/v1/tokens': { post: { summary: 'Make a short-lived Git token', responses: { 201: { description: 'The token, shown once' } } } },
             },

@@ -75,8 +75,14 @@ function change(r, out, canWrite, signed) {
     const action = (op, inner) => `<form class="git-inline-form" method="post" action="${b}/${op}">${hidden('head_sha', out.diff.head)}${inner}</form>`;
     const outdated = out.comments.filter((m) => m.head_sha !== out.diff.head);
     const approvals = out.approvals.length;
+    const checkItems = (out.checks || []).map((s) => {
+        const name = s.target_url ? `<a href="${esc(s.target_url)}" rel="noopener">${esc(s.context)}</a>` : `<span>${esc(s.context)}</span>`;
+        return `<li class="git-check git-check--${esc(s.state)}">${ic(s.state === 'success' ? 'check' : s.state === 'pending' ? 'eye' : 'shield')}${name}<span class="git-muted">${esc(s.state)}</span></li>`;
+    }).join('');
+    const requiredNote = (out.required || []).length && !out.mergeable ? '<p class="git-muted">Required checks are not passing.</p>' : '';
     const box = `<section class="git-card git-merge-box" aria-labelledby="git-merge-h"><h2 id="git-merge-h">Review</h2>
 <ul class="git-status"><li class="${approvals ? 'is-ok' : ''}">${ic(approvals ? 'check' : 'eye')}<span>${approvals ? `${plural(approvals, 'approval')} for this commit` : 'No approvals for this commit yet'}</span></li><li>${ic('shield')}<span>${esc(out.checks_label)}</span></li></ul>
+${checkItems ? `<ul class="git-checks">${checkItems}</ul>` : ''}${requiredNote}
 ${open && (signed || canWrite) ? `<div class="git-merge-acts">${signed ? action('approve', submit('Approve', 'quiet', 'check')) : ''}
 ${canWrite ? action('merge', `<label class="git-field git-field--inline"><span>How</span><select name="method"><option value="merge">Merge commit</option><option value="squash">Squash</option><option value="rebase">Rebase</option></select></label>${submit('Merge', 'primary', 'branch')}`) : ''}
 ${signed ? action('close', `<button class="git-close" type="submit">Close this change</button>`) : ''}</div>` : `<p class="git-muted">${open ? 'Sign in to review this change.' : `This change is ${esc(STATE[c.state] || c.state).toLowerCase()}.`}</p>`}</section>`;

@@ -52,6 +52,28 @@ is a row in the database, so a deploy does not reset the interval. The first che
 job ticks hourly, in the background: `/api/ready` never waits on it, and a failed run waits for the next due time.
 An empty `GIT_OFFICIAL_ORG` turns the job off, and so does drill mode.
 
+## Tarballs, pins and checks
+
+Every ref answers a gzip tarball: `GET /<owner>/<name>/archive/<ref>.tar.gz` (a branch may hold slashes) and
+the same path under `/api/v1/repos/<owner>/<name>/`. The bytes are git archive of the resolved commit,
+streamed, with the commit as the ETag; a tag or a full commit id caches immutably, a branch for a minute.
+The top folder is `<name>-<commit>/`, so a tag's bytes never change and a package manager can pin them:
+
+```json
+"openvibe-shared": "https://git.openvibe.codes/openvibers/openvibe.shared/archive/v4.186.0.tar.gz"
+```
+
+instead of the `codeload.github.com` URL it replaces. Public repositories need no token; private ones answer
+404 to anyone who may not see them, like the raw file.
+
+A commit carries statuses: `POST /api/v1/repos/:owner/:name/commits/:sha/statuses` with
+`{context, state: pending|success|failure|error, description?, target_url?}`, reported with a typed Network
+service token holding `git.checks.write`; `GET` lists the latest per context. A change shows them and is
+mergeable only when its required contexts are green — a per-repository list, empty by default, set with
+`POST …/required-checks {contexts}`. For a mirrored repository the checks intake copies GitHub's check-runs
+for the open pull-request heads and the default branch (at most every two minutes per repository, and only
+when a head moved), so the pages show the truth until our own runners report.
+
 ## Layout
 
 - `server/git/` — repositories on disk: creation, refs, trees, blobs, commits, diffs, bunches, and `http-backend`.

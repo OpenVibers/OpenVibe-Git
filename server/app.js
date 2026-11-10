@@ -27,6 +27,7 @@ const { createGithubClient } = require('./github');
 const { createInsights } = require('./insights');
 const { createRepos } = require('./repos');
 const { createMirrors } = require('./mirror');
+const { createChecksIntake } = require('./checks-intake');
 const { createOfficialMirrors } = require('./official');
 const { createSmartHttp, parseGitPath } = require('./git/http-backend');
 const { identify } = require('./auth/git-auth');
@@ -34,6 +35,8 @@ const { createApi } = require('./http/api');
 const { createPageRoutes } = require('./http/pages');
 const { createReviewRoutes } = require('./http/review');
 const { createReviews } = require('./reviews');
+const { createChecks } = require('./checks');
+const { createArchive } = require('./archive');
 const { createReviewServices } = require('./review-services');
 const { createLinkRelay } = require('./link-relay');
 const { createLinkRoutes } = require('./http/link');
@@ -61,6 +64,9 @@ function createApp(opts = {}) {
             secureCookies: config.cookies.secure, fetch: fetchImpl, log,
         });
         const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, smartHttp, sso, log };
+        ctx.checks = createChecks({ store: s, log });
+        ctx.archive = createArchive({ config, git });
+        ctx.checksIntake = opts.checksIntake || createChecksIntake({ store: s, checks: ctx.checks, config, git, github, log });
         ctx.relay = createLinkRelay(ctx);
 
         ctx.reviews = createReviews(ctx, opts.reviewServices || createReviewServices(config, fetchImpl));

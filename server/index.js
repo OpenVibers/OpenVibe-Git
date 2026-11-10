@@ -2,8 +2,8 @@
 
 /**
  * OpenVibe.Git — process entry. `node server/index.js` listens on PORT (5270) behind nginx (deploy/), starts the
- * mirror poll and the due-based official mirrors seed, and stops in order on SIGTERM: the HTTP drain, the timers,
- * the cat-file processes, the database.
+ * mirror poll, the checks intake and the due-based official mirrors seed, and stops in order on SIGTERM: the HTTP
+ * drain, the timers, the cat-file processes, the database.
  */
 const { createApp } = require('./app');
 const { gracefulStop } = require('openvibe-sdk/service');
@@ -12,6 +12,7 @@ const { catFiles } = require('./git/store');
 function createLifecycle({ server, exit, signals, ctx } = {}) {
     const mirrors = ctx && ctx.mirrors;
     const official = ctx && ctx.official;
+    const checksIntake = ctx && ctx.checksIntake;
     const store = ctx && ctx.store;
     return gracefulStop({
         name: 'OpenVibe.Git',
@@ -20,7 +21,7 @@ function createLifecycle({ server, exit, signals, ctx } = {}) {
         exit,
         signals,
         deadlineMs: 10_000,
-        stop: [() => ctx.reviews && ctx.reviews.stop(), () => (mirrors ? mirrors.stop() : undefined), () => (official ? official.stop() : undefined)],
+        stop: [() => ctx.reviews && ctx.reviews.stop(), () => (mirrors ? mirrors.stop() : undefined), () => (official ? official.stop() : undefined), () => (checksIntake ? checksIntake.stop() : undefined)],
         close: [() => catFiles.close(), () => (store ? store.close() : undefined)],
     });
 }
@@ -31,6 +32,7 @@ async function start() {
     if (config.mirrors.pollMs) ctx.mirrors.start();
     // Due-based and off unless GIT_OFFICIAL_ORG is set: the first check is shortly after boot, never in this path.
     ctx.official.start();
+    ctx.checksIntake.start();
     ctx.reviews.start();
     const server = app.listen(config.port, config.host, () => {
         console.log(`[OpenVibe.Git] ${config.nodeEnv} on http://${config.host}:${config.port} → ${config.baseUrl} (release ${release.release})`);
