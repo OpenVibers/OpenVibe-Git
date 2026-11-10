@@ -325,9 +325,7 @@
 .git-message { display: grid; gap: 12px; justify-items: start; padding-top: 40px; }
 .git-message p { color: var(--text-secondary); max-width: 42rem; }
 
-@media (prefers-reduced-motion: no-preference) {
-  .git-card a, .git-tab, .git-filter, .ovk-btn { transition: background-color .15s var(--ov-ease-out, ease), border-color .15s var(--ov-ease-out, ease), color .15s var(--ov-ease-out, ease); }
-}
+.git-card a, .git-tab, .git-filter, .ovk-btn { transition: background-color .15s var(--ov-ease-out, ease), border-color .15s var(--ov-ease-out, ease), color .15s var(--ov-ease-out, ease); }
 
 /* The shared navbar's app bar is fixed on a phone: the page ends above it, not under it. */
 @media (max-width: 899px) {
