@@ -73,6 +73,24 @@ A service never holds a person's password.
 
 G2 adds changes and review, compare, issues, blame and code search. See [the API and integration notes](docs/g2-review.md) for routes, capability grants, the AI-choices dependency, and recovery details.
 
+## Link: clone here, and publish your computer
+
+G3 adds Link's outbound relay (contracts `git.clone-request@1` and `git.machine@1`):
+
+- **Clone to my computer** on a repository page makes a `clr_…` request for two minutes and shows
+  `openvibe-link clone '<link>'` (and an `openvibe-link://clone?url=…` deep link). Link reads the request over
+  HTTPS with the one-time token, asks the person there, clones into a folder inside the root they chose, and posts
+  approved / progress / done / refused / failed back; the page's progress line polls the same row. The clone URL's
+  read token reaches only the Link, is kept in this process, and is revoked when the request ends.
+- **Your computers** (`/machines`) makes an `mch_…` link for `openvibe-link git connect '<link>'`. Link publishes
+  the repositories under its root, read-only: the page lists them with the branch, head and date, and browses tree,
+  file and log through the poll the machine opened. A machine that has not checked in for thirty seconds is
+  **offline since …**; there is no write path.
+
+The routes are `POST /api/v1/clone-requests`, `GET /api/v1/clone-requests/:id`, `POST|GET /api/v1/machines`, and the
+Link's own `/api/v1/link/clone-requests/:id` and `/api/v1/link/machines/:id/{hello,watch,results}`. Tests:
+`test/link-relay.test.js`.
+
 <!-- versions:start -->
 - openvibe-contracts: v0.384.0
 - openvibe-sdk: v0.133.0

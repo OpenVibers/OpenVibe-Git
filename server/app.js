@@ -35,6 +35,8 @@ const { createPageRoutes } = require('./http/pages');
 const { createReviewRoutes } = require('./http/review');
 const { createReviews } = require('./reviews');
 const { createReviewServices } = require('./review-services');
+const { createLinkRelay } = require('./link-relay');
+const { createLinkRoutes } = require('./http/link');
 const { setRelease } = require('./render/layout');
 
 const VERSION = require('../package.json').version;
@@ -59,6 +61,7 @@ function createApp(opts = {}) {
             secureCookies: config.cookies.secure, fetch: fetchImpl, log,
         });
         const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, smartHttp, sso, log };
+        ctx.relay = createLinkRelay(ctx);
 
         ctx.reviews = createReviews(ctx, opts.reviewServices || createReviewServices(config, fetchImpl));
 
@@ -154,6 +157,7 @@ function createApp(opts = {}) {
             windowMs: 60_000, limit: config.apiRateLimitPerMinute, standardHeaders: true, legacyHeaders: false,
             handler: (req, res) => contracts.http.sendProblem(res, 429, 'rate_limited', { detail: 'too many requests from this address; retry shortly', ctx: req.ov }),
         }));
+        app.use('/api/v1', createLinkRoutes(ctx));
         app.use('/api/v1', createReviewRoutes(ctx, true));
         app.use('/api/v1', createApi(ctx));
         app.use('/api', (req, res) => contracts.http.sendProblem(res, 404, 'route.not_found', { detail: 'No such API route', ctx: req.ov }));
