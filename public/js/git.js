@@ -50,10 +50,11 @@
     const line = document.querySelector('[data-clone-request]');
     if (line) {
         const id = line.getAttribute('data-clone-request');
-        const words = { pending: 'Waiting for your answer in Link…', approved: 'Approved; Link is starting git…', cloning: 'Cloning…', done: 'Cloned.', refused: 'Refused in Link.', failed: 'The clone failed.', expired: 'The request expired after two minutes.' };
+        const endpoint = line.getAttribute('data-clone-endpoint') || `/api/v1/clone-requests/${encodeURIComponent(id)}`;
+        const words = { queued: 'Sent to your computer…', waiting: 'Waiting for your answer in Link…', pending: 'Waiting for your answer in Link…', approved: 'Approved; Link is starting git…', cloning: 'Cloning…', done: 'Cloned.', refused: 'Refused in Link.', failed: 'The clone failed.', expired: 'The request expired after two minutes.' };
         const tick = async () => {
             try {
-                const res = await fetch(`/api/v1/clone-requests/${encodeURIComponent(id)}`, { credentials: 'same-origin' });
+                const res = await fetch(endpoint, { credentials: 'same-origin' });
                 if (!res.ok) return;
                 const data = await res.json();
                 const req = data.request || {};

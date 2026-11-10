@@ -30,6 +30,30 @@ function clonePage({ row, request, link }) {
 </div>`;
 }
 
+/** The clone's own page: the same plain progress line the Get it panel shows, for a link opened on its own. */
+function cloneToMachinePage({ row, request }) {
+    const full = `${row.owner_username}/${row.name}`;
+    return `<div class="git-list-page git-clone">
+<header class="git-page-head"><p class="git-crumb"><a href="/${esc(full)}">${esc(full)}</a></p><h1>Clone to my computer</h1>
+<p>Your computer asks you in Link before it writes anything. The folder is inside the root you chose there, and the request ends after two minutes.</p></header>
+<div class="git-get-choice">
+  <p class="git-clone-line" data-clone-request="${esc(request.id)}" data-clone-endpoint="/api/v1/repos/${esc(full)}/clone-to-machine/${esc(request.id)}" role="status" aria-live="polite">${esc(words(request))}</p>
+  <p class="muted"><a href="/${esc(full)}">Back to ${esc(full)}</a></p>
+</div>
+</div>`;
+}
+
+function words(request) {
+    const text = {
+        queued: 'Sent to your computer…', waiting: 'Waiting for your answer in Link…',
+        pending: 'Waiting for your answer in Link…', approved: 'Approved; Link is starting git…',
+        cloning: 'Cloning…', done: 'Cloned.', refused: 'Refused in Link.', failed: 'The clone failed.',
+        expired: 'The request expired after two minutes.',
+    }[request.state] || request.state || '';
+    if (request.state === 'done' && request.path) return `Cloned into ${request.path}`;
+    return request.reason ? `${text} ${request.reason}` : text;
+}
+
 function machinesPage({ viewer, machines = [], error = null }) {
     const name = viewer && viewer.username ? viewer.username : 'you';
     const rows = machines.map((m) => `<li class="git-machine">
@@ -140,4 +164,4 @@ function machineError({ machine, repo, error }) {
 </div>`;
 }
 
-module.exports = { clonePage, machinesPage, machineConnectPage, machinePage, machineRepoPage, machineFilePage, machineCommitsPage };
+module.exports = { clonePage, cloneToMachinePage, machinesPage, machineConnectPage, machinePage, machineRepoPage, machineFilePage, machineCommitsPage };

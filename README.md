@@ -82,14 +82,22 @@ G3 adds Link's outbound relay (contracts `git.clone-request@1` and `git.machine@
   HTTPS with the one-time token, asks the person there, clones into a folder inside the root they chose, and posts
   approved / progress / done / refused / failed back; the page's progress line polls the same row. The clone URL's
   read token reaches only the Link, is kept in this process, and is revoked when the request ends.
+- **Clone to one of my computers:** the Get it panel lists the person's own Link computers, one plain button each.
+  The button makes a `clr_…` request addressed to that computer and sends it down the watch the computer already
+  holds (`kind: clone`, the repository, the https clone URL with a short read token, who asked, and the end of the two
+  minutes). The computer answers `waiting` (it is asking its owner), `approved`, `cloning` with git's percentage,
+  then `done` with the folder, or `refused` / `failed`; the panel's progress line follows the same row. Nothing is
+  written until the person answers there, and only the computer the request went to can move it. With no computer
+  online the panel says so and keeps the terminal-command link above.
 - **Your computers** (`/machines`) makes an `mch_…` link for `openvibe-link git connect '<link>'`. Link publishes
   the repositories under its root, read-only: the page lists them with the branch, head and date, and browses tree,
   file and log through the poll the machine opened. A machine that has not checked in for thirty seconds is
-  **offline since …**; there is no write path.
+  **offline since …**; the only write it ever does is a clone the person approved there.
 
-The routes are `POST /api/v1/clone-requests`, `GET /api/v1/clone-requests/:id`, `POST|GET /api/v1/machines`, and the
-Link's own `/api/v1/link/clone-requests/:id` and `/api/v1/link/machines/:id/{hello,watch,results}`. Tests:
-`test/link-relay.test.js`.
+The routes are `POST /api/v1/clone-requests`, `GET /api/v1/clone-requests/:id`,
+`POST /api/v1/repos/:owner/:name/clone-to-machine` and `GET …/clone-to-machine/:id`, `POST|GET /api/v1/machines`, and
+the Link's own `/api/v1/link/clone-requests/:id`, `/api/v1/link/machines/:id/{hello,watch,results}` and
+`POST /api/v1/link/machines/:id/clone-requests/:clr`. Tests: `test/link-relay.test.js`, `test/clone-to-machine.test.js`.
 
 <!-- versions:start -->
 - openvibe-contracts: v0.384.0

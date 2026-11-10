@@ -58,6 +58,37 @@ function createLinkRoutes(ctx) {
         return res.set('Cache-Control', 'no-store').json({ request });
     }));
 
+    // ── Clone to one of my computers ────────────────────────
+    // The request rides the watch that computer already holds; only the computer it was addressed to can report on it.
+    r.post('/repos/:owner/:name/clone-to-machine', h(async (req, res) => {
+        const me = requirePerson(req, res);
+        if (!me) return undefined;
+        const row = await repos.getRow(String(req.params.owner || '').toLowerCase(), String(req.params.name || '').toLowerCase());
+        if (!row || !repos.canView(row, me)) return problem(req, res, 404, 'repo.not_found', 'No such repository, or it is private.');
+        try {
+            const request = await relay.createCloneToMachine({ viewer: me, row, machineId: req.body && req.body.machine });
+            return res.set('Cache-Control', 'no-store').status(201).json({ request });
+        } catch (err) { return fail(req, res, err); }
+    }));
+
+    r.get('/repos/:owner/:name/clone-to-machine/:id', h(async (req, res) => {
+        const me = viewer(req);
+        if (!me) return problem(req, res, 401, 'auth.required', 'Sign in first.');
+        const request = await relay.getForPage({ id: String(req.params.id), subject: me.subject });
+        const repo = `${String(req.params.owner || '').toLowerCase()}/${String(req.params.name || '').toLowerCase()}`;
+        if (!request || request.repo !== repo) return problem(req, res, 404, 'clone.not_found', 'No such clone request.');
+        return res.set('Cache-Control', 'no-store').json({ request });
+    }));
+
+    // The computer's report on the clone it was asked to run, over its own one-time token.
+    r.post('/link/machines/:id/clone-requests/:cloneId', h(async (req, res) => {
+        const request = await relay.machineCloneUpdate({
+            machineId: String(req.params.id), token: linkToken(req), id: String(req.params.cloneId), body: req.body || {},
+        });
+        if (!request) return problem(req, res, 404, 'clone.not_found', 'No such clone request for this computer.');
+        return res.set('Cache-Control', 'no-store').json({ request });
+    }));
+
     // The Link's end of the same request.
     r.get('/link/clone-requests/:id', h(async (req, res) => {
         const doc = await relay.linkGet({ id: String(req.params.id), token: linkToken(req) });

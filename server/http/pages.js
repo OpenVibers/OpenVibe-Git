@@ -65,14 +65,15 @@ function createPageRoutes(ctx) {
 
     async function repoContext(req, row) {
         const me = viewer(req);
-        const [starred, watching, parent] = await Promise.all([
+        const [starred, watching, parent, machines] = await Promise.all([
             repos.isStarred(row, me && me.subject),
             repos.isWatching(row, me && me.subject),
             row.fork_of ? repos.byId(row.fork_of) : Promise.resolve(null),
+            me && me.subject ? relay.listMachines({ subject: me.subject }) : Promise.resolve(null),
         ]);
         const start = { starred, watching, forkOf: parent ? `${parent.owner_username}/${parent.name}` : null, isOwner: repos.isOwner(row, me) };
         const card = row.github_full_name ? await github.card(row.github_full_name, { branch: row.default_branch }) : null;
-        return { ...start, card, languages: row.languages };
+        return { ...start, card, languages: row.languages, machines };
     }
 
     async function readReadme(row, ref) {
@@ -244,7 +245,10 @@ function createPageRoutes(ctx) {
         const ref = row.default_branch || 'main';
         const [tree, context] = await Promise.all([git.readTree(row.owner_username, row.name, ref, '').catch(() => null), repoContext(req, row)]);
         const readme = tree ? await readReadme(row, ref) : null;
-        return page(req, res, views.repoPage({ row, viewer: viewer(req), tree: tree || { path: '', entries: [] }, readme, ...context }), meta(req, row));
+        const cloneRequest = req.query.clone && signedIn(req)
+            ? await relay.getForPage({ id: String(req.query.clone), subject: viewer(req).subject })
+            : null;
+        return page(req, res, views.repoPage({ row, viewer: viewer(req), tree: tree || { path: '', entries: [] }, readme, cloneRequest, ...context }), meta(req, row));
     }));
 
     r.post('/:owner/:name/clone', h(async (req, res) => {
@@ -257,6 +261,29 @@ function createPageRoutes(ctx) {
         } catch (err) {
             return page(req, res, views.message({ title: 'The clone request was not made', text: err.message, link: { href: `/${row.owner_username}/${row.name}`, label: 'Back to the repository' } }), { status: err.status || 422 });
         }
+    }));
+
+    // Clone to one of the person's own Link computers, from a plain button in the Get it panel. The request rides the
+    // watch that computer already holds; this goes back to the repository with its progress line open.
+    r.post('/:owner/:name/clone-to-machine', h(async (req, res) => {
+        if (!guard(req, res)) return undefined;
+        const row = await rowFor(req, res);
+        if (!row) return undefined;
+        try {
+            const request = await relay.createCloneToMachine({ viewer: viewer(req), row, machineId: req.body.machine });
+            return res.redirect(303, `/${row.owner_username}/${row.name}?clone=${encodeURIComponent(request.id)}#get`);
+        } catch (err) {
+            return page(req, res, views.message({ title: 'The clone request was not made', text: err.message, link: { href: `/${row.owner_username}/${row.name}`, label: 'Back to the repository' } }), { status: err.status || 422 });
+        }
+    }));
+
+    r.get('/:owner/:name/clone-to-machine/:id', h(async (req, res) => {
+        if (!signedIn(req)) return res.redirect(303, loginTo(req.originalUrl));
+        const row = await rowFor(req, res);
+        if (!row) return undefined;
+        const request = await relay.getForPage({ id: String(req.params.id), subject: viewer(req).subject });
+        if (!request || request.repo !== `${row.owner_username}/${row.name}`) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        return page(req, res, machineViews.cloneToMachinePage({ row, request }), { title: `Clone ${row.owner_username}/${row.name} to your computer`, index: false });
     }));
 
     r.get('/:owner/:name/tree', h(async (req, res) => {
