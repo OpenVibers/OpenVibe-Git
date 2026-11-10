@@ -122,7 +122,7 @@ the Link's own `/api/v1/link/clone-requests/:id`, `/api/v1/link/machines/:id/{he
 `POST /api/v1/link/machines/:id/clone-requests/:clr`. Tests: `test/link-relay.test.js`, `test/clone-to-machine.test.js`.
 
 <!-- versions:start -->
-- openvibe-contracts: v0.384.0
+- openvibe-contracts: v0.399.0
 - openvibe-sdk: v0.146.0
 - openvibe-shared: v4.199.0
 <!-- versions:end -->
