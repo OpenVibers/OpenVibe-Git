@@ -42,6 +42,7 @@ const { createArchive } = require('./archive');
 const { createReviewServices } = require('./review-services');
 const { createLinkRelay } = require('./link-relay');
 const { createLinkRoutes } = require('./http/link');
+const { createNpmRegistry } = require('./npm-registry');
 const { setRelease } = require('./render/layout');
 
 const VERSION = require('../package.json').version;
@@ -150,6 +151,8 @@ function createApp(opts = {}) {
 
         // ── Bodies: the GitHub webhook reads raw, everything else JSON ──
         app.use('/api/v1/webhooks/github', express.raw({ type: '*/*', limit: '5mb' }));
+        app.use('/api/packages', rateLimit({ windowMs: 60_000, limit: config.apiRateLimitPerMinute }),
+            createNpmRegistry({ store: s, config, ciAuth: ctx.ciAuth, log }));
         app.use(express.json({ limit: '4mb' }));
 
         // ── Static ──────────────────────────────────────────────
