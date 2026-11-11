@@ -5,6 +5,8 @@
   "workRoot": "~/.local/share/openvibe-git-ci/work",
   "engine": "auto",
   "concurrency": 1,
+  "githubStatus": true,
+  "githubContext": "forge/test",
   "pollMs": 5000,
   "heartbeatMs": 15000,
   "proxyAllow": ["registry.npmjs.org", "codeload.github.com"],
