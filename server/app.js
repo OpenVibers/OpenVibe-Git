@@ -130,7 +130,7 @@ function createApp(opts = {}) {
                 const row = await repos.getRow(parsed.owner, parsed.name);
                 if (!row) return res.status(404).type('text/plain').send('No such repository.');
                 const identity = await identify(req, { store: s, config });
-                return smartHttp.run(req, res, { row, suffix: parsed.suffix, identity });
+                return ctx.smartHttp.run(req, res, { row, suffix: parsed.suffix, identity });
             })().catch((err) => {
                 log.error('[OpenVibe.Git] git route:', err && err.message);
                 if (!res.headersSent) res.status(500).type('text/plain').send('The git server could not answer.');
