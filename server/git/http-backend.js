@@ -63,7 +63,7 @@ function cgiHeaders(text) {
     return { status, headers, bodyAt: idx + sep };
 }
 
-function createSmartHttp({ config, repos, mirrors, insights, log = console }) {
+function createSmartHttp({ config, repos, mirrors, insights, ci = null, log = console }) {
     const mayRead = (row, identity) => {
         if (row.visibility === 'public') return true;
         if (!identity) return false;
@@ -146,6 +146,15 @@ function createSmartHttp({ config, repos, mirrors, insights, log = console }) {
             await repos.recordEvent(row, 'push', identity || { subject: null, username: null }, { service });
             await repos.audit(identity, 'git.push', row, {}, req.ip || null);
             await mirrors.afterPush(row);
+            // A branch push that landed here (the estate's own tools) can queue a forge run; a person's forge
+            // account is not a GitHub login, so only the network's service tokens count (server/ci.js).
+            if (ci) {
+                for (const change of parsePushCommands(body)) {
+                    if (!change.ref.startsWith('refs/heads/') || /^0+$/.test(change.new)) continue;
+                    ci.onForgePush(row, identity, { ref: change.ref, sha: change.new })
+                        .catch((err) => log.warn(`[OpenVibe.Git] CI forge push ${row.owner_username}/${row.name}: ${String(err.message || err).slice(0, 200)}`));
+                }
+            }
         } else if (suffix === 'info/refs' && service === 'git-upload-pack' && req.method === 'GET') {
             // A clone or fetch begins here; count it once, not again on the pack that follows.
             if (insights) await insights.recordClone(row, { address: req.ip || '', subject: identity ? identity.subject : null });
@@ -153,6 +162,29 @@ function createSmartHttp({ config, repos, mirrors, insights, log = console }) {
     }
 
     return { run, mayRead, mayWrite, parseGitPath };
+}
+
+/** The ref updates at the start of a git-receive-pack request body: [{ old, new, ref }]. */
+function parsePushCommands(body) {
+    const out = [];
+    if (!Buffer.isBuffer(body)) return out;
+    let i = 0;
+    while (i + 4 <= body.length) {
+        const size = parseInt(body.subarray(i, i + 4).toString('latin1'), 16);
+        i += 4;
+        if (size === 0) break;                       // flush: the pack follows
+        if (!Number.isFinite(size) || size < 4 || i + size - 4 > body.length) break;
+        const line = body.subarray(i, i + size - 4).toString('utf8');
+        i += size - 4;
+        const command = line.split('\u0000')[0].trim();
+        const parts = command.split(' ');
+        if (parts.length < 3) continue;
+        const [oldSha, newSha, ref] = parts;
+        if (!/^[0-9a-f]{40,64}$/i.test(oldSha) || !/^[0-9a-f]{40,64}$/i.test(newSha)) continue;
+        if (!ref.startsWith('refs/')) continue;
+        out.push({ old: oldSha.toLowerCase(), new: newSha.toLowerCase(), ref });
+    }
+    return out;
 }
 
 /** Byte offset of the end of the CGI header block (after the blank line). */
@@ -163,4 +195,4 @@ function findHeaderEnd(buf) {
     return lf >= 0 ? lf + 2 : -1;
 }
 
-module.exports = { createSmartHttp, parseGitPath, cgiHeaders, findHeaderEnd, ROUTE };
+module.exports = { createSmartHttp, parseGitPath, cgiHeaders, findHeaderEnd, parsePushCommands, ROUTE };

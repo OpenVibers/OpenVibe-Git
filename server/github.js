@@ -271,6 +271,30 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return Array.isArray(body && body.check_runs) ? body.check_runs : [];
     }
 
+    /**
+     * The permission a GitHub login has on one repository: admin, maintain, write, triage, read, or null when
+     * the login is not a collaborator. This is the push-access check the forge runner trusts (10-minute cache
+     * in server/ci.js); a 404 is an answer, not an error.
+     */
+    async function permission(full, login) {
+        if (!FULL_RE.test(String(full || ''))) return null;
+        const who = String(login || '');
+        if (!/^[A-Za-z0-9-]{1,39}$/.test(who)) return null;
+        const [owner, name] = String(full).split('/');
+        const res = await fetchImpl(
+            `${config.github.apiUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/collaborators/${encodeURIComponent(who)}/permission`,
+            { headers: headers(), signal: AbortSignal.timeout(10_000) },
+        );
+        if (res.status === 404) return null;
+        if (!res.ok) {
+            const err = new Error(`GitHub ${res.status} for ${full} permission`);
+            err.status = res.status;
+            throw err;
+        }
+        const body = await res.json();
+        return body && typeof body.permission === 'string' ? body.permission : null;
+    }
+
     /** GitHub's X-Hub-Signature-256 over the raw body, constant time. */
     function signatureOk(rawBody, signature) {
         const secret = config.github.webhookSecret;
@@ -281,7 +305,7 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return a.length === b.length && crypto.timingSafeEqual(a, b);
     }
 
-    return { parseGithubUrl, card, meta, probe, orgRepos, openPulls, checkRuns, signatureOk, _cache: cache };
+    return { parseGithubUrl, card, meta, probe, orgRepos, openPulls, checkRuns, permission, signatureOk, _cache: cache };
 }
 
 module.exports = { createGithubClient, parseGithubUrl, parseRefs, pktLine, FULL_RE };

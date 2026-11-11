@@ -74,6 +74,11 @@ mergeable only when its required contexts are green — a per-repository list, e
 for the open pull-request heads and the default branch (at most every two minutes per repository, and only
 when a head moved), so the pages show the truth until our own runners report.
 
+**Forge CI** runs a repository's tests on the workstation, in a sandbox, for branch pushes to official repositories
+by OpenVibers members only; the verdict is the `forge/test` status and the log is at `/<owner>/<name>/ci/<run>`.
+Forks, pull requests and non-members keep GitHub Actions. What runs, how it is contained and how to add a repository:
+[docs/ci.md](docs/ci.md).
+
 ## Layout
 
 - `server/git/` — repositories on disk: creation, refs, trees, blobs, commits, diffs, bunches, and `http-backend`.
@@ -82,6 +87,9 @@ when a head moved), so the pages show the truth until our own runners report.
 - `server/official.js` — the due-based seed of the official mirrors from a GitHub organisation or the contracts.
 - `server/contracts.js` — the repository list named by openvibe-contracts when GitHub's listing is refused.
 - `server/insights.js` — views, unique visitors, clones, stars and commits per week.
+- `server/ci.js`, `server/ci-auth.js` — the forge CI queue, the member rule, supersede and the `forge/test` status.
+- `runner/` — the workstation runner: poll, clone, sandbox phases, allowlisted install proxy, log and verdict.
+- `deploy/ci/`, `deploy/systemd-user/` — the runner's install script, example config and user unit.
 - `contracts` — `git.repo@1`, `git.commit@1`, `git.tree@1`, `git.insights@1` (OpenVibe.Contracts).
 - `deploy/` — the systemd unit and the nginx vhost for `git.openvibe.codes`.
 

@@ -519,3 +519,17 @@
   .git-review .git-diff-line { grid-template-columns: 2.6em 2.6em minmax(0, 1fr); }
   .git-inline { margin-left: 12px; }
 }
+
+/* Forge CI: one row per run, and the run's log. Plain by design; the kit carries the rest. */
+.git-ci-list { list-style: none; margin: 0 0 18px; padding: 0; }
+.git-ci-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); margin-top: 8px; }
+.git-ci-row .git-check { grid-row: span 2; align-self: center; }
+.git-ci-main { display: inline-flex; gap: 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
+.git-ci-main code { color: var(--text-muted); font-size: .82rem; }
+.git-ci-facts { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.git-ci-facts li { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); min-width: 0; overflow-wrap: anywhere; }
+.git-ci-facts span { color: var(--text-muted); font-size: .78rem; }
+.git-ci-log { max-height: 70vh; overflow: auto; }
+.git-check--success { color: var(--git-add, #3a9); }
+.git-check--failure, .git-check--error, .git-check--timed_out { color: var(--git-del, #c55); }
+.git-check--running, .git-check--queued { color: var(--text-muted); }

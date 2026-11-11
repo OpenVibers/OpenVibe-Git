@@ -22,6 +22,7 @@ const express = require('express');
 const contracts = require('openvibe-contracts');
 const { send } = require('../render/layout');
 const views = require('../views');
+const ciViews = require('../views/ci');
 const machineViews = require('../views/machine');
 const { viewerOf } = require('./identity');
 const { esc } = require('../render/html');
@@ -30,7 +31,7 @@ const { validRef, validPath } = require('../git/refs');
 const { serveArchive } = require('../archive');
 
 function createPageRoutes(ctx) {
-    const { config, repos, git, github, mirrors, insights, store, relay, archive, log } = ctx;
+    const { config, repos, git, github, mirrors, insights, store, relay, archive, ci, log } = ctx;
     const r = express.Router();
     r.use(express.urlencoded({ extended: false, limit: '256kb' }));
     const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
@@ -389,6 +390,24 @@ function createPageRoutes(ctx) {
         if (!row) return undefined;
         const data = await repos.insightsFor(row, { days: req.query.days });
         return page(req, res, views.insightsPage({ row, data }), meta(req, row, { title: 'Insights', description: `Views, clones, stars and commits for ${row.owner_username}/${row.name}.` }));
+    }));
+
+    r.get('/:owner/:name/ci', h(async (req, res) => {
+        const row = await rowFor(req, res);
+        if (!row) return undefined;
+        const conf = await ci.configFor(row);
+        return page(req, res, ciViews.list({
+            row, enabled: Boolean(conf && conf.enabled), context: config.ci.context,
+            runs: await ci.runsFor(row, { limit: req.query.limit }),
+        }), meta(req, row, { title: 'CI', index: false }));
+    }));
+
+    r.get('/:owner/:name/ci/:id', h(async (req, res) => {
+        const row = await rowFor(req, res);
+        if (!row) return undefined;
+        const run = await ci.runFor(row, req.params.id);
+        if (!run) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
+        return page(req, res, ciViews.run({ row, run }), meta(req, row, { title: `CI · ${run.branch}`, index: false }));
     }));
 
     // ── Writes ──────────────────────────────────────────────

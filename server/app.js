@@ -36,6 +36,8 @@ const { createPageRoutes } = require('./http/pages');
 const { createReviewRoutes } = require('./http/review');
 const { createReviews } = require('./reviews');
 const { createChecks } = require('./checks');
+const { createCi } = require('./ci');
+const { createCiAuth } = require('./ci-auth');
 const { createArchive } = require('./archive');
 const { createReviewServices } = require('./review-services');
 const { createLinkRelay } = require('./link-relay');
@@ -57,14 +59,16 @@ function createApp(opts = {}) {
         const repos = opts.repos || createRepos({ store: s, config, git, github, insights, log });
         const mirrors = opts.mirrors || createMirrors({ store: s, repos, config, git, github, log });
         const official = opts.official || createOfficialMirrors({ store: s, repos, config, github, log });
-        const smartHttp = opts.smartHttp || createSmartHttp({ config, repos, mirrors, insights, log });
         const sso = opts.sso || createSsoClient({
             site: 'git', baseUrl: config.baseUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret,
             networkUrl: config.networkUrl, networkInternalUrl: config.networkInternalUrl,
             secureCookies: config.cookies.secure, fetch: fetchImpl, log,
         });
-        const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, smartHttp, sso, log };
+        const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, sso, log };
         ctx.checks = createChecks({ store: s, log });
+        ctx.ci = opts.ci || createCi({ config, store: s, checks: ctx.checks, git, github, repos, log });
+        ctx.smartHttp = opts.smartHttp || createSmartHttp({ config, repos, mirrors, insights, ci: ctx.ci, log });
+        ctx.ciAuth = opts.ciAuth || createCiAuth({ config, log });
         ctx.archive = createArchive({ config, git });
         ctx.checksIntake = opts.checksIntake || createChecksIntake({ store: s, checks: ctx.checks, config, git, github, log });
         ctx.relay = createLinkRelay(ctx);
@@ -126,7 +130,7 @@ function createApp(opts = {}) {
                 const row = await repos.getRow(parsed.owner, parsed.name);
                 if (!row) return res.status(404).type('text/plain').send('No such repository.');
                 const identity = await identify(req, { store: s, config });
-                return smartHttp.run(req, res, { row, suffix: parsed.suffix, identity });
+                return ctx.smartHttp.run(req, res, { row, suffix: parsed.suffix, identity });
             })().catch((err) => {
                 log.error('[OpenVibe.Git] git route:', err && err.message);
                 if (!res.headersSent) res.status(500).type('text/plain').send('The git server could not answer.');

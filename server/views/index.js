@@ -123,6 +123,7 @@ function repoTabs(row, active, ref) {
         ['code', 'Code', base],
         ['changes', 'Changes', `${base}/changes`],
         ['issues', 'Issues', `${base}/issues`],
+        ['ci', 'CI', `${base}/ci`],
         ['search', 'Search code', `${base}/search`],
         ['commits', 'Commits', `${base}/commits`],
         ['branches', 'Branches', `${base}/branches`],
