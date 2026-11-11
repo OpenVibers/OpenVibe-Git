@@ -75,7 +75,6 @@ function load(env = process.env) {
             enabled: bool(env.GIT_CI_ENABLED, true),
             org: String(env.GIT_CI_ORG || officialOwners[0] || 'openvibers').toLowerCase(),
             context: String(env.GIT_CI_CONTEXT || 'forge/test').slice(0, 255),
-            githubStatuses: bool(env.GIT_CI_GITHUB_STATUSES, true),
             members: list(env.GIT_CI_MEMBERS).map((m) => m.toLowerCase()),
             membershipCacheMs: Math.max(60_000, int(env.GIT_CI_MEMBER_CACHE_MS, 10 * 60_000)),
             reapMs: Math.max(30_000, int(env.GIT_CI_REAP_MS, 60_000)),

@@ -13,20 +13,10 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
 
 (async () => {
     const calls = [];
-    const posted = [];
-    let statusDeniedFor = null;
     const realFetch = globalThis.fetch;
     const fetchImpl = async (url, init) => {
         const u = String(url);
         if (!u.startsWith('https://api.github.com/')) return realFetch(url, init);
-        if (u.includes('/statuses/')) {
-            if (statusDeniedFor && u.toLowerCase().includes(`/repos/${statusDeniedFor.toLowerCase()}/`)) {
-                return { ok: false, status: 403, json: async () => ({ message: 'Resource not accessible by personal access token' }) };
-            }
-            const body = JSON.parse(init.body);
-            posted.push({ url: u, ...body });
-            return ok({ id: posted.length, state: body.state, context: body.context }, 201);
-        }
         if (u.includes('/collaborators/')) {
             const login = decodeURIComponent(u.split('/collaborators/')[1].split('/')[0]);
             calls.push(login);
@@ -71,9 +61,6 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
         let statuses = await t.get(`/api/v1/repos/openvibers/live/commits/${live.head}/statuses`);
         assert.deepStrictEqual(statuses.json().statuses.map((s) => [s.context, s.state]), [['forge/test', 'pending']]);
         assert.match(statuses.json().statuses[0].target_url, /\/openvibers\/live\/ci\/cir_/);
-        assert.deepStrictEqual(posted.map((s) => [s.context, s.state]), [['forge/test', 'pending']], 'the pending status is on GitHub too');
-        assert.equal(posted[0].description, 'Queued on the forge runner');
-        assert.match(posted[0].target_url, /\/openvibers\/live\/ci\/cir_/);
 
         // A collaborator with write runs only after GitHub says so; the same answer is cached for ten minutes.
         const friend = await make('friend');
@@ -111,10 +98,6 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
         assert.equal(done.json().run.state, 'success');
         statuses = await t.get(`/api/v1/repos/openvibers/live/commits/${live.head}/statuses`);
         assert.equal(statuses.json().state, 'success');
-        const livePosted = posted.filter((s) => s.url.includes(live.head));
-        assert.deepStrictEqual(livePosted.map((s) => s.state), ['pending', 'success'], 'the verdict is on GitHub too');
-        assert.equal(livePosted[1].context, 'forge/test');
-        assert.match(livePosted[1].description, /Forge runner passed in 9s/);
         const page = await t.get(`/openvibers/live/ci/${job.run.id}`);
         assert.match(page.text, /47 tests passed/);
         assert.match(page.text, /Forge runner passed in 9s/);
@@ -169,15 +152,6 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
         assert.equal(manual.json().run.source, 'manual');
         assert.equal((await t.get('/api/v1/repos/openvibers/live/ci/runs', { as: t.asUser('mallory'), json: {} })).status, 403);
         assert.ok(!t.logs().join('\n').includes(TOKEN), 'the runner token is never logged');
-
-        // A token that cannot write commit statuses: the forge status is still written, the run still queues,
-        // and the refusal is logged instead of failing the push.
-        statusDeniedFor = 'openvibers/denied';
-        const deniedRepo = await make('denied');
-        const deniedRun = await t.ctx.ci.onGithubPush(deniedRepo.row, push(deniedRepo.head, 'OpenVibers', deniedRepo.full));
-        assert.equal(deniedRun.run.state, 'queued');
-        assert.match(t.logs().join('\n'), /GitHub status OpenVibers\/denied .*403/, 'the refusal is logged');
-        statusDeniedFor = null;
 
         console.log('ci: member, non-member, fork, supersede, claim, log, status intake and timeout passed');
     } finally { await t.close(); }

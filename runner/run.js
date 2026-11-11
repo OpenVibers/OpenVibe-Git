@@ -12,6 +12,7 @@ const { execFile, spawnSync } = require('node:child_process');
 const { createProxy } = require('./proxy');
 const { runProcess } = require('./process');
 const { podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, detectEngine, RELAY } = require('./sandbox');
+const { reportGithubStatus } = require('./github-status');
 
 
 
@@ -193,10 +194,17 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
         if (stopping) { state = 'error'; description = 'The runner stopped before the run finished'; }
         const duration = clock() - started;
         if (state !== 'superseded') {
+            let finished = null;
             try {
-                await api.finish(run.id, { state, description, exit_code: exitCode, duration_ms: duration });
+                const out = await api.finish(run.id, { state, description, exit_code: exitCode, duration_ms: duration });
+                finished = out && out.run ? out.run : null;
             } catch (err) {
                 say(`[git-ci-runner] ${run.id} verdict not sent (${state}): ${err.message}`);
+            }
+            // Only a verdict the forge accepted is repeated on GitHub: the forge's status is the source of truth.
+            if (finished) {
+                const targetUrl = finished.url || `${cfg.api}/${String(job.repo.full_name).toLowerCase()}/ci/${run.id}`;
+                await reportGithubStatus({ cfg, job, state, description, targetUrl, log: (line) => say(line) });
             }
         }
         fs.rmSync(runDir, { recursive: true, force: true });

@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * GitHub: the repository card (stars, open issues and PRs, the last CI state), the metadata a mirror is created
- * from, the open PR heads and check-runs the checks intake copies, the signature check on GitHub's push webhook,
- * and the forge's own verdict written back as a commit status (so a pull request shows it beside GitHub Actions).
+ * GitHub, read only: the repository card (stars, open issues and PRs, the last CI state), the metadata a
+ * mirror is created from, the open PR heads and check-runs the checks intake copies, and the signature check on
+ * GitHub's push webhook.
  *
  * Every reading is cached for ten minutes (config.github.cacheMs), so a card costs our quota once per ten
  * minutes, not once per view. The API token (for the OpenVibers repositories) is sent only to
@@ -295,38 +295,6 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return body && typeof body.permission === 'string' ? body.permission : null;
     }
 
-    /**
-     * Report a commit status on GitHub: the forge's verdict beside GitHub Actions, visible on the pull request.
-     * The token is the mirror's; a token without commit-status write answers 403 and the caller logs it without
-     * failing the run. GitHub caps the description at 140 characters and rejects an empty context.
-     */
-    async function status(full, sha, { context, state, description = '', target_url = '' } = {}) {
-        if (!FULL_RE.test(String(full || ''))) return { ok: false, skipped: 'repository' };
-        if (!/^[0-9a-f]{40}$/i.test(String(sha || ''))) return { ok: false, skipped: 'sha' };
-        if (!['error', 'failure', 'pending', 'success'].includes(state)) return { ok: false, skipped: 'state' };
-        const [owner, name] = String(full).split('/');
-        const res = await fetchImpl(
-            `${config.github.apiUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/statuses/${encodeURIComponent(String(sha).toLowerCase())}`,
-            {
-                method: 'POST',
-                headers: { ...headers(), 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    state,
-                    context: String(context || 'forge/test').slice(0, 255),
-                    description: String(description || '').slice(0, 140),
-                    target_url: /^https?:\/\//.test(String(target_url || '')) ? String(target_url) : '',
-                }),
-                signal: AbortSignal.timeout(10_000),
-            },
-        );
-        if (!res.ok) {
-            const err = new Error(`GitHub ${res.status} for ${full} status`);
-            err.status = res.status;
-            throw err;
-        }
-        return { ok: true };
-    }
-
     /** GitHub's X-Hub-Signature-256 over the raw body, constant time. */
     function signatureOk(rawBody, signature) {
         const secret = config.github.webhookSecret;
@@ -337,7 +305,7 @@ function createGithubClient({ config, fetchImpl = globalThis.fetch, now = () => 
         return a.length === b.length && crypto.timingSafeEqual(a, b);
     }
 
-    return { parseGithubUrl, card, meta, probe, orgRepos, openPulls, checkRuns, permission, status, signatureOk, _cache: cache };
+    return { parseGithubUrl, card, meta, probe, orgRepos, openPulls, checkRuns, permission, signatureOk, _cache: cache };
 }
 
 module.exports = { createGithubClient, parseGithubUrl, parseRefs, pktLine, FULL_RE };

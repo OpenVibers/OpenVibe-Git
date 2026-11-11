@@ -46,7 +46,32 @@ const { hashToken, parseHash, createCiAuth } = require('../server/ci-auth');
         assert.equal(cfg.repos['openvibers/openvibe.shared'].test_command, 'npm test');
         assert.equal(cfg.concurrency, 1);
         assert.deepStrictEqual(registrations(cfg).map((r) => r.full_name), ['openvibers/openvibe.shared']);
+        assert.equal(cfg.githubStatus, true);
+        assert.equal(cfg.githubContext, 'forge/test');
         assert.throws(() => loadConfig({ GIT_CI_CONFIG: path.join(dir, 'missing.json'), GIT_CI_TOKEN_FILE: path.join(dir, 'none') }), /cannot be read/);
+
+        // The verdict on GitHub: gh gets a POST for a configured repository, with the run as the target; an
+        // unknown repository, the off switch and a gh refusal all resolve instead of throwing.
+        const { reportGithubStatus, githubState } = require('../runner/github-status');
+        assert.equal(githubState('timed_out'), 'failure');
+        const sha = 'a'.repeat(40);
+        const job = { repo: { full_name: 'openvibers/openvibe.shared' }, run: { sha } };
+        let ghArgv = null;
+        const fakeGh = (cmd, args, _opts, cb) => { ghArgv = [cmd, ...args]; cb(null, '{}', ''); };
+        const posted = await reportGithubStatus({
+            cfg, job, state: 'success', description: 'Forge runner passed in 9s',
+            targetUrl: 'https://git.openvibe.codes/openvibers/openvibe.shared/ci/cir_1', log: () => {}, exec: fakeGh,
+        });
+        assert.equal(posted.ok, true);
+        assert.equal(ghArgv[0], 'gh');
+        assert.deepStrictEqual(ghArgv.slice(1, 4), ['api', '--method', 'POST']);
+        assert.ok(ghArgv.includes(`repos/openvibers/openvibe.shared/statuses/${sha}`));
+        assert.ok(ghArgv.includes('state=success'));
+        assert.ok(ghArgv.includes('context=forge/test'));
+        assert.ok(ghArgv.includes('target_url=https://git.openvibe.codes/openvibers/openvibe.shared/ci/cir_1'));
+        assert.equal((await reportGithubStatus({ cfg, job: { ...job, repo: { full_name: 'openvibers/other' } }, state: 'success' })).skipped, 'repository');
+        assert.equal((await reportGithubStatus({ cfg: { ...cfg, githubStatus: false }, job, state: 'success' })).skipped, 'off');
+        assert.equal((await reportGithubStatus({ cfg, job, state: 'failure', log: () => {}, exec: (_c, _a, _o, cb) => cb(new Error('boom'), '', 'HTTP 401') })).ok, false);
 
         // The egress allowlist refuses hostnames outside it and any host that resolves to a private address.
         assert.equal(isPublicAddress('8.8.8.8'), true);

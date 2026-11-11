@@ -10,6 +10,8 @@
  *     "workRoot": "~/.cache/openvibe-git-ci",
  *     "engine": "auto",                         // auto | podman | bwrap
  *     "concurrency": 1,
+ *     "githubStatus": true,                     // also post the verdict to the GitHub pull request (via gh)
+ *     "githubContext": "forge/test",
  *     "pollMs": 5000,
  *     "proxyAllow": ["registry.npmjs.org", "codeload.github.com"],
  *     "repos": {
@@ -62,6 +64,10 @@ function loadConfig(env = process.env) {
         engine: ['auto', 'podman', 'bwrap'].includes(raw.engine) ? raw.engine : 'auto',
         image: String(raw.image || 'docker.io/library/node:22-bookworm'),
         concurrency: int(raw.concurrency, 1, 1, 4),
+        // The verdict goes to GitHub through the workstation's gh login, so the pull request shows it beside
+        // GitHub Actions. Off only when the owner says so; the forge status is written either way.
+        githubStatus: raw.githubStatus !== false,
+        githubContext: String(raw.githubContext || 'forge/test').slice(0, 255),
         pollMs: int(raw.pollMs, 5000, 1000, 60_000),
         heartbeatMs: int(raw.heartbeatMs, 15_000, 2000, 60_000),
         proxyAllow: Array.isArray(raw.proxyAllow) && raw.proxyAllow.length

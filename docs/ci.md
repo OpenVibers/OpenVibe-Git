@@ -17,11 +17,12 @@ A run is made only when all of these are true:
 
 It never runs for a pull request, a pull request from a fork, a push to a fork, a tag, a bot, or a non-member.
 A repository with no CI entry is not tested here. The checks intake from GitHub (`server/checks-intake.js`) keeps
-copying GitHub's check-runs, so a change can show both `test` (GitHub) and `forge/test` (here). The same
-`forge/test` status is written to GitHub through the commit-status API, so the **pull request** on GitHub shows the
-forge's result too, with the run on the forge as its target. A token without commit-status write answers 403: the
-run still finishes and the forge status is still written; only the GitHub copy is missing, with a warning in the
-service log.
+copying GitHub's check-runs, so a change can show both `test` (GitHub) and `forge/test` (here). When a run ends, the
+runner also posts the same `forge/test` status to GitHub through the workstation's `gh` login (the forge host has no
+GitHub token and is not given one), so the **pull request** on GitHub shows the forge's result too, with the run on
+the forge as its target. The GitHub post is best effort: a missing `gh` login, a commit GitHub does not know (a
+forge-only push) or a GitHub outage is logged, and the forge status stays final either way. `"githubStatus": false`
+in `git-ci.json` turns the GitHub copy off.
 
 **One run per repository is live.** A newer branch push supersedes the queued or running one: the older run becomes
 `superseded`, its runner sees that on the next heartbeat (every 15 s), kills its sandbox and reports no verdict.
@@ -41,7 +42,8 @@ error when the runner reports; a timed-out run is a failure.
 4. **Test phase** — a fresh sandbox with **no network at all** (`--network=none` / an empty network namespace),
    the same workspace, no proxy socket mounted.
 5. The log streams to the forge while it runs; the verdict goes back with the duration and is written as the
-   `forge/test` commit status. The log is on `/<owner>/<name>/ci/<run>` and its JSON is
+   `forge/test` commit status. The runner then posts the same status to GitHub with `gh` (outside the sandbox),
+   so the pull request shows it. The log is on `/<owner>/<name>/ci/<run>` and its JSON is
    `GET /api/v1/repos/<owner>/<name>/ci/runs/<id>`.
 
 The commands, image and limit are per repository, registered by the runner from `~/.config/openvibe/git-ci.json`.
@@ -68,7 +70,7 @@ reason.
 | engine | rootless **podman** if `podman info` says rootless, else **bubblewrap** (the workstation has both; podman is used) |
 | identity | a new user namespace; container root is not host root. The podman user namespace keeps the host uid (`--userns=keep-id`); bubblewrap uses uid/gid 1000 inside its own namespace |
 | filesystem | read-only root (`--read-only`), a tmpfs `/tmp`, and **one** host path: the per-run work directory bind-mounted at `/workspace`. No home, no `/etc/openvibe`, no git checkout of the runner, no Docker socket, no SSH agent |
-| secrets | none. The runner's own token is not mounted; no repository secret is passed; the container environment is an allowlist (HOME, PATH, locale, npm cache inside the workspace) |
+| secrets | none. The runner's own token is not mounted; no repository secret is passed; the container environment is an allowlist (HOME, PATH, locale, npm cache inside the workspace). The GitHub status is posted by the runner process after the sandbox exits, using the workstation's own `gh` login; no GitHub token is in the runner's config or in a container. |
 | network | install: loopback only, with the proxy on a Unix socket (the sandbox has no route anywhere else). test: no network namespace route at all |
 | limits | `--cpus 4`, `--memory 6144m` (swap the same), `--pids-limit 2048`, 30 minutes wall clock (configurable 30 s–1 h). A run past it is killed and reported `timed_out`; a runner that disappears is reaped by the service a minute after its limit |
 | capabilities | all dropped, `no-new-privileges`, a new session; bubblewrap also disables nested user namespaces |
@@ -159,10 +161,11 @@ because there is no install cache on GitHub and no queue here.
 - `migrations/0008_ci_runs.sql` — `git_ci_repos` (enabled, commands, image, limits) and `git_ci_runs` (state, log,
   timings), with a partial unique index that keeps one live run per repository.
 - `server/ci.js` — the member rule, enqueue and supersede, claim/heartbeat/log/finish, the reaper and the
-  `forge/test` status (written to the forge and, with `GIT_CI_GITHUB_STATUSES`, to the GitHub commit too).
+  `forge/test` status on the forge.
 - `server/ci-auth.js` — the runner token's scrypt hash and the constant-time check.
 - `server/http/api.js` — `/api/v1/ci/*` (runner token) and `/api/v1/repos/:owner/:name/ci*` (public reads, owner
   manual runs).
 - `server/views/ci.js`, `server/http/pages.js` — the CI tab, the run list and the log page.
 - `runner/` — `index.js` (poll), `run.js` (clone, phases, verdict), `sandbox.js` (podman/bubblewrap),
-  `proxy.js` (the install allowlist), `process.js` (the wall clock), `config.js`, `api.js`, `token.js`.
+  `proxy.js` (the install allowlist), `process.js` (the wall clock), `config.js`, `api.js`, `token.js`, and
+  `github-status.js` (the verdict on the GitHub pull request, through `gh`, outside the sandbox).
