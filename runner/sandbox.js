@@ -39,8 +39,8 @@ function detectEngine(preferred = 'auto') {
     throw new Error('no sandbox engine: rootless podman or bubblewrap is required');
 }
 
-const envList = (workspace, extra = {}) => ({
-    HOME: `${workspace}/.home`,
+const envList = (extra = {}) => ({
+    HOME: '/workspace/.home',
     TMPDIR: '/tmp',
     PATH: '/opt/node/bin:/usr/local/bin:/usr/bin:/bin',
     LANG: 'C.UTF-8',
@@ -48,11 +48,11 @@ const envList = (workspace, extra = {}) => ({
     CI: 'true',
     NO_COLOR: '1',
     TZ: 'UTC',
-    npm_config_cache: `${workspace}/.cache/npm`,
+    npm_config_cache: '/workspace/.cache/npm',
     npm_config_fund: 'false',
     npm_config_audit: 'false',
     npm_config_update_notifier: 'false',
-    PNPM_HOME: `${workspace}/.pnpm`,
+    PNPM_HOME: '/workspace/.pnpm',
     ...extra,
 });
 
@@ -86,7 +86,7 @@ function podmanArgs({ name, workspace, image, limits, proxySock = null, script }
         '-v', `${workspace}:/workspace:rw`,
         '--stop-timeout', '5',
     ];
-    for (const [key, value] of Object.entries(envList(workspace))) args.push('-e', `${key}=${value}`);
+    for (const [key, value] of Object.entries(envList())) args.push('-e', `${key}=${value}`);
     if (proxySock) args.push('-v', `${proxySock}:/workspace/.ci/proxy.sock:rw`);
     args.push(image, '/bin/sh', '-c', script);
     return args;
@@ -127,7 +127,7 @@ function bwrapArgs({ workspace, limits, proxySock = null, script }) {
         '--disable-userns', '--die-with-parent', '--new-session', '--cap-drop', 'ALL', '--clearenv',
         '--uid', String(UID), '--gid', String(GID), '--hostname', 'ci',
     ];
-    for (const [key, value] of Object.entries({ ...envList(workspace), PATH: `${nodeBin}:/usr/local/bin:/usr/bin:/bin` })) {
+    for (const [key, value] of Object.entries({ ...envList(), PATH: `${nodeBin}:/usr/local/bin:/usr/bin:/bin` })) {
         args.push('--setenv', key, value);
     }
     args.push('--ro-bind', '/usr', '/usr');

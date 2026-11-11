@@ -79,7 +79,7 @@ const { hashToken, parseHash, createCiAuth } = require('../server/ci-auth');
         assert.ok(!install.includes('--privileged'));
         assert.match(installScript('npm ci'), /http_proxy=http:\/\/127\.0\.0\.1:3128/);
         assert.doesNotMatch(installScript('npm test', { proxy: false }), /http_proxy/);
-        assert.equal(envList('/tmp/run-1').HOME, '/tmp/run-1/.home');
+        assert.equal(envList().HOME, '/workspace/.home');
 
         const testPhase = podmanArgs({
             name: 'ov-ci-cir_1-test', workspace: '/tmp/run-1', image: 'node:22-bookworm', limits,
@@ -129,7 +129,7 @@ const { hashToken, parseHash, createCiAuth } = require('../server/ci-auth');
                     heartbeat: async () => ({ found: true, state: 'running', superseded: false }),
                     finish: async (_id, verdict) => { finished = verdict; return { ok: true }; },
                 };
-                const runner = createRunner({ cfg: runCfg, api, log: () => {} });
+                const runner = createRunner({ cfg: runCfg, api, log: { log: () => {}, warn: () => {} } });
                 const out = await runner.runJob({
                     run: { id: 'cir_runner_e2e', sha, branch: 'main' },
                     repo: { full_name: 'openvibers/e2e', clone_url: `file://${bare}`, default_branch: 'main' },

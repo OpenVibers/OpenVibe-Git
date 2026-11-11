@@ -69,6 +69,7 @@ async function cloneAt({ dir, cloneUrl, sha, branch, log, attempts = 24, waitMs 
 }
 
 function createRunner({ cfg, api, log = console, clock = Date.now }) {
+    const say = typeof log === 'function' ? log : (...args) => log.log(...args);
     const engine = detectEngine(cfg.engine);
     const rootArgs = engine.kind === 'podman' ? ['--root', cfg.podmanRoot, '--runroot', cfg.podmanRunRoot] : [];
     // Only what podman and systemd-run need: never the runner's token or the rest of the service environment.
@@ -82,9 +83,9 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
     };
     if (engine.kind === 'podman') {
         const image = spawnSync('podman', [...rootArgs, 'image', 'exists', cfg.image], { encoding: 'utf8', timeout: 20_000 });
-        if (image.error || image.status !== 0) log(`[git-ci-runner] image ${cfg.image} is not in ${cfg.podmanRoot}; run deploy/ci/install.sh`);
+        if (image.error || image.status !== 0) say(`[git-ci-runner] image ${cfg.image} is not in ${cfg.podmanRoot}; run deploy/ci/install.sh`);
     }
-    log(`[git-ci-runner] sandbox: ${engine.why}; ${Object.keys(cfg.repos).length} repositories configured`);
+    say(`[git-ci-runner] sandbox: ${engine.why}; ${Object.keys(cfg.repos).length} repositories configured`);
     let activeKill = null;
     let stopping = false;
 
@@ -119,7 +120,7 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             const chunk = buffer;
             buffer = '';
             lastFlush = clock();
-            try { await api.log(run.id, chunk); } catch (err) { log(`[git-ci-runner] log not sent: ${err.message}`); }
+            try { await api.log(run.id, chunk); } catch (err) { say(`[git-ci-runner] log not sent: ${err.message}`); }
         };
         const onData = (data) => {
             const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
@@ -134,10 +135,10 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             api.heartbeat(run.id).then((out) => {
                 if (out && out.superseded && !superseded) {
                     superseded = true;
-                    log(`[git-ci-runner] ${run.id} was superseded; stopping it`);
+                    say(`[git-ci-runner] ${run.id} was superseded; stopping it`);
                     if (currentKill) currentKill();
                 }
-            }).catch((err) => log(`[git-ci-runner] heartbeat: ${err.message}`));
+            }).catch((err) => say(`[git-ci-runner] heartbeat: ${err.message}`));
         }, cfg.heartbeatMs);
 
         const sandbox = (phase, command, proxySock) => {
@@ -157,7 +158,7 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             const left = deadline - clock();
             if (left < 5000) return { timedOut: true, code: null, skipped: true };
             const box = sandbox(label, script, proxySock);
-            log(`[git-ci-runner] ${run.id} ${label}`);
+            say(`[git-ci-runner] ${run.id} ${label}`);
             activeKill = () => box.kill();
             const res = await runProcess({
                 command: box.command, args: box.args, env: sandboxEnv, timeoutMs: left,
@@ -173,7 +174,7 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
         let description = '';
         let exitCode = null;
         try {
-            log(`[git-ci-runner] ${run.id} ${job.repo.full_name} ${run.branch} ${run.sha.slice(0, 12)}`);
+            say(`[git-ci-runner] ${run.id} ${job.repo.full_name} ${run.branch} ${run.sha.slice(0, 12)}`);
             await cloneAt({ dir: runDir, cloneUrl: job.repo.clone_url, sha: run.sha, branch: run.branch, log: (line) => onData(`${line}\n`) });
 
             proxy = createProxy({ allow: cfg.proxyAllow, log: { warn: (line) => onData(`${line}\n`) } });
@@ -206,7 +207,7 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             try {
                 await api.finish(run.id, { state, description, exit_code: exitCode, duration_ms: duration });
             } catch (err) {
-                log(`[git-ci-runner] ${run.id} verdict not sent (${state}): ${err.message}`);
+                say(`[git-ci-runner] ${run.id} verdict not sent (${state}): ${err.message}`);
             }
         }
         fs.rmSync(runDir, { recursive: true, force: true });
