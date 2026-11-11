@@ -16,7 +16,7 @@
     },
     "openvibers/openvibe.games": {
       "image": "localhost/openvibe-ci-node22:1",
-      "install_command": "pnpm install --frozen-lockfile",
+      "install_command": "pnpm install --frozen-lockfile --store-dir /workspace/node_modules/.pnpm-store",
       "test_command": "pnpm typecheck && pnpm lint && pnpm test",
       "timeout_seconds": 1800
     },
@@ -26,12 +26,14 @@
       "timeout_seconds": 1800
     },
     "openvibers/openvibe.chat": {
+      "image": "localhost/openvibe-ci-node22-ffmpeg:1",
       "install_command": "npm ci --no-audit --no-fund",
       "test_command": "npm test",
       "timeout_seconds": 1800
     },
     "openvibers/openvibe.live": {
-      "install_command": "npm ci --no-audit --no-fund",
+      "image": "localhost/openvibe-ci-node22-mediasoup:1",
+      "install_command": "ONNXRUNTIME_NODE_INSTALL=skip npm ci --no-audit --no-fund",
       "test_command": "npm test",
       "timeout_seconds": 1800
     }
