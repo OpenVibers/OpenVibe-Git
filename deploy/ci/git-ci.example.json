@@ -1,0 +1,38 @@
+{
+  "_about": "The forge CI runner on the workstation. This file is not a secret; it names the forge, the token file, the sandbox engine and one entry per repository. deploy/ci/install.sh copies it to ~/.config/openvibe/git-ci.json when none is there.",
+  "api": "https://git.openvibe.codes",
+  "tokenFile": "~/.config/openvibe/git-ci.token",
+  "workRoot": "~/.local/share/openvibe-git-ci/work",
+  "engine": "auto",
+  "concurrency": 1,
+  "pollMs": 5000,
+  "heartbeatMs": 15000,
+  "proxyAllow": ["registry.npmjs.org", "codeload.github.com"],
+  "repos": {
+    "openvibers/openvibe.shared": {
+      "install_command": "npm ci --no-audit --no-fund",
+      "test_command": "npm test",
+      "timeout_seconds": 1800
+    },
+    "openvibers/openvibe.games": {
+      "install_command": "corepack enable --install-directory /workspace/.pnpm/bin && pnpm install --frozen-lockfile",
+      "test_command": "pnpm typecheck && pnpm lint && pnpm test",
+      "timeout_seconds": 1800
+    },
+    "openvibers/openvibe.network": {
+      "install_command": "npm ci --no-audit --no-fund",
+      "test_command": "npm test",
+      "timeout_seconds": 1800
+    },
+    "openvibers/openvibe.chat": {
+      "install_command": "npm ci --no-audit --no-fund",
+      "test_command": "npm test",
+      "timeout_seconds": 1800
+    },
+    "openvibers/openvibe.live": {
+      "install_command": "npm ci --no-audit --no-fund",
+      "test_command": "npm test",
+      "timeout_seconds": 1800
+    }
+  }
+}

@@ -19,7 +19,7 @@ const fail = (req, res, err) => problem(req, res, err.status || 500, err.code ||
 function boolParam(v) { return v === true || v === '1' || v === 'true' || v === 'yes'; }
 
 function createApi(ctx) {
-    const { config, repos, mirrors, git, insights, store, sso, checks, archive, log } = ctx;
+    const { config, repos, mirrors, git, insights, store, sso, checks, archive, ci, ciAuth, log } = ctx;
     const r = express.Router();
     const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
     // One identity read per request: the session, or a token (a person's or a service's, and for a service the
@@ -264,6 +264,86 @@ function createApi(ctx) {
         } catch (err) { return fail(req, res, err); }
     }));
 
+    // ── Forge CI (the workstation runner) ──────────────────
+    // The runner holds one token; the service holds its scrypt hash. Nothing here is reachable with a session.
+    const runnerOnly = (req, res) => {
+        if (!ciAuth.ok(req)) {
+            problem(req, res, 401, 'ci.runner_token', 'The forge runner token is missing or wrong.');
+            return false;
+        }
+        return true;
+    };
+
+    r.post('/ci/repos', h(async (req, res) => {
+        if (!runnerOnly(req, res)) return undefined;
+        try {
+            const list = Array.isArray(req.body) ? req.body : (req.body && Array.isArray(req.body.repos) ? req.body.repos : []);
+            return res.json({ repositories: await ci.registerRepos(list) });
+        } catch (err) { return fail(req, res, err); }
+    }));
+
+    r.post('/ci/runs/claim', h(async (req, res) => {
+        if (!runnerOnly(req, res)) return undefined;
+        const job = await ci.claim((req.body && req.body.runner) || 'forge-runner');
+        if (!job) return res.status(204).end();
+        return res.json(job);
+    }));
+
+    r.get('/ci/runs/:id/heartbeat', h(async (req, res) => {
+        if (!runnerOnly(req, res)) return undefined;
+        return res.json(await ci.heartbeat(req.params.id));
+    }));
+
+    r.post('/ci/runs/:id/log', h(async (req, res) => {
+        if (!runnerOnly(req, res)) return undefined;
+        const out = await ci.appendLog(req.params.id, String((req.body || {}).chunk || ''));
+        if (!out.ok) return problem(req, res, 409, 'ci.run_not_running', `This run is ${out.state}.`);
+        return res.json(out);
+    }));
+
+    r.post('/ci/runs/:id/status', h(async (req, res) => {
+        if (!runnerOnly(req, res)) return undefined;
+        try {
+            const out = await ci.finish(req.params.id, req.body || {});
+            if (!out.ok) return problem(req, res, 409, 'ci.run_not_running', `This run is ${out.state}.`);
+            return res.json(out);
+        } catch (err) { return fail(req, res, err); }
+    }));
+
+    r.get('/repos/:owner/:name/ci', h(async (req, res) => {
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
+        const conf = await ci.configFor(found.row);
+        return res.json({
+            repo: `${found.row.owner_username}/${found.row.name}`,
+            enabled: Boolean(conf && conf.enabled),
+            context: config.ci.context,
+            runs: await ci.runsFor(found.row, { limit: req.query.limit }),
+        });
+    }));
+
+    r.get('/repos/:owner/:name/ci/runs/:id', h(async (req, res) => {
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
+        const run = await ci.runFor(found.row, req.params.id);
+        if (!run) return problem(req, res, 404, 'ci.run_not_found', 'No such run.');
+        return res.json(run);
+    }));
+
+    r.post('/repos/:owner/:name/ci/runs', h(async (req, res) => {
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
+        const caller = await callerFor(req);
+        const runner = ciAuth.ok(req);
+        if (!runner && (!caller || !repos.isOwner(found.row, actingAs(caller)))) {
+            return problem(req, res, 403, 'repo.forbidden', 'Only the owner or the forge runner may start a run.');
+        }
+        try {
+            const out = await ci.manual(found.row, (req.body || {}), runner ? 'runner' : 'owner');
+            return res.status(201).json(out);
+        } catch (err) { return fail(req, res, err); }
+    }));
+
     r.get('/repos/:owner/:name/branches', h(async (req, res) => {
         const found = await visible(req, req.params.owner, req.params.name);
         if (!found) return problem(req, res, 404, 'repo.not_found', 'No such repository.');
@@ -360,7 +440,14 @@ function createApi(ctx) {
     r.post('/webhooks/github', h(async (req, res) => {
         if (!Buffer.isBuffer(req.body)) return problem(req, res, 415, 'webhook.raw_required', 'The webhook body is read raw.');
         const out = await mirrors.handleWebhook(req.body, req.headers);
-        return res.status(out.status).json(out.body);
+        res.status(out.status).json(out.body);
+        // A push starts a forge run only after the mirror has the pushed commit; a pull request never does.
+        if (out.event === 'push' && out.row && out.payload && out.sync) {
+            out.sync
+                .then(() => ci.onGithubPush(out.row, out.payload))
+                .catch((err) => log.warn(`[OpenVibe.Git] CI push ${out.row.owner_username}/${out.row.name}: ${String(err.message || err).slice(0, 200)}`));
+        }
+        return undefined;
     }));
 
     r.use((req, res) => problem(req, res, 404, 'route.not_found', 'No such API route.'));

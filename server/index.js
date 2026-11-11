@@ -13,6 +13,7 @@ function createLifecycle({ server, exit, signals, ctx } = {}) {
     const mirrors = ctx && ctx.mirrors;
     const official = ctx && ctx.official;
     const checksIntake = ctx && ctx.checksIntake;
+    const ci = ctx && ctx.ci;
     const store = ctx && ctx.store;
     return gracefulStop({
         name: 'OpenVibe.Git',
@@ -21,7 +22,7 @@ function createLifecycle({ server, exit, signals, ctx } = {}) {
         exit,
         signals,
         deadlineMs: 10_000,
-        stop: [() => ctx.reviews && ctx.reviews.stop(), () => (mirrors ? mirrors.stop() : undefined), () => (official ? official.stop() : undefined), () => (checksIntake ? checksIntake.stop() : undefined)],
+        stop: [() => ctx.reviews && ctx.reviews.stop(), () => (mirrors ? mirrors.stop() : undefined), () => (official ? official.stop() : undefined), () => (checksIntake ? checksIntake.stop() : undefined), () => (ci ? ci.stop() : undefined)],
         close: [() => catFiles.close(), () => (store ? store.close() : undefined)],
     });
 }
@@ -33,6 +34,7 @@ async function start() {
     // Due-based and off unless GIT_OFFICIAL_ORG is set: the first check is shortly after boot, never in this path.
     ctx.official.start();
     ctx.checksIntake.start();
+    ctx.ci.start();
     ctx.reviews.start();
     const server = app.listen(config.port, config.host, () => {
         console.log(`[OpenVibe.Git] ${config.nodeEnv} on http://${config.host}:${config.port} → ${config.baseUrl} (release ${release.release})`);

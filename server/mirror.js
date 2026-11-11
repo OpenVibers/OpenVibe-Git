@@ -86,9 +86,10 @@ function createMirrors({ store, repos, config, git, github, log = console }) {
         if (!full) return { status: 200, body: { ok: true, ignored: true } };
         const row = await store.maybe('SELECT * FROM git_repos WHERE lower(github_full_name) = lower(?)', [full]);
         if (!row) return { status: 200, body: { ok: true, ignored: 'no mirror' } };
-        // Acknowledge now, fetch after: GitHub's delivery does not wait on a large clone.
-        syncRow(row).catch(() => {});
-        return { status: 202, body: { ok: true, queued: true, repo: full } };
+        // Acknowledge now, fetch after: GitHub's delivery does not wait on a large clone. The CI runner is told
+        // after the fetch has brought the pushed commit in (the caller schedules it), never before.
+        const sync = syncRow(row).catch(() => {});
+        return { status: 202, body: { ok: true, queued: true, repo: full }, row, payload, event: headers['x-github-event'], sync };
     }
 
     /** After a push: mark it and, if a push mirror is on, push back to GitHub. */

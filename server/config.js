@@ -7,6 +7,7 @@
  */
 require('dotenv').config();
 
+const path = require('node:path');
 const trim = (s) => String(s || '').replace(/\/+$/, '');
 const int = (v, def) => (Number.isFinite(parseInt(v, 10)) ? parseInt(v, 10) : def);
 const bool = (v, def = false) => (v == null || v === '' ? def : !/^(0|false|no|off)$/i.test(String(v)));
@@ -65,6 +66,20 @@ function load(env = process.env) {
             webhookSecret: env.GIT_GITHUB_WEBHOOK_SECRET || '',
             pushToken: env.GIT_GITHUB_PUSH_TOKEN || '',
             cacheMs: Math.max(60_000, int(env.GIT_GITHUB_CACHE_MS, 10 * 60_000)),
+        },
+
+        // Forge CI: the workstation runner's queue. A run is made only for a branch push to an official
+        // repository by a login GitHub says may push there (the owning account, a configured member, or a
+        // collaborator with write). The token file holds an scrypt hash, never the token.
+        ci: {
+            enabled: bool(env.GIT_CI_ENABLED, true),
+            org: String(env.GIT_CI_ORG || officialOwners[0] || 'openvibers').toLowerCase(),
+            context: String(env.GIT_CI_CONTEXT || 'forge/test').slice(0, 255),
+            members: list(env.GIT_CI_MEMBERS).map((m) => m.toLowerCase()),
+            membershipCacheMs: Math.max(60_000, int(env.GIT_CI_MEMBER_CACHE_MS, 10 * 60_000)),
+            reapMs: Math.max(30_000, int(env.GIT_CI_REAP_MS, 60_000)),
+            runnerToken: env.GIT_CI_RUNNER_TOKEN || '',
+            runnerTokenFile: env.GIT_CI_RUNNER_TOKEN_FILE || path.join(__dirname, '..', 'deploy', 'ci', 'runner-token'),
         },
 
         // Clone tokens (opaque, hashed at rest) and the key that seals a stored push-mirror token.

@@ -1,0 +1,26 @@
+[Unit]
+Description=OpenVibe.Git forge CI runner (workstation; rootless podman or bubblewrap sandboxes)
+Documentation=https://git.openvibe.codes/openvibers/openvibe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/openvibe/git-ci
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=GIT_CI_CONFIG=%h/.config/openvibe/git-ci.json
+# The runner has its own podman store under ~/.local/share (the shared store is on the inode-full offload disk).
+Environment=CONTAINERS_CONF=%h/.config/openvibe/containers.conf
+Environment=CONTAINERS_STORAGE_CONF=%h/.config/openvibe/containers-storage.conf
+ExecStart=/usr/bin/node %h/openvibe/git-ci/runner/index.js
+Restart=always
+RestartSec=10
+KillMode=control-group
+KillSignal=SIGTERM
+# The current run is killed on SIGTERM; a podman cleanup may take a few seconds after it.
+TimeoutStopSec=120
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target
