@@ -396,7 +396,7 @@ ${diff && commit.diff ? `<div class="git-diff" data-git-diff><div class="git-dif
 function branchesPage({ row, branches }) {
     const base = `/${row.owner_username}/${row.name}`;
     return `<div class="git-list-page"><header class="git-page-head"><p class="git-crumb"><a href="${base}">${esc(row.full_name || `${row.owner_username}/${row.name}`)}</a></p><h1>Branches</h1></header>${repoTabs(row, 'branches')}
-${branches.length ? `<ul class="git-refs">${branches.map((b) => `<li><a href="${base}/tree${qs({ ref: b.name })}"><span>${icon('code')} <b>${esc(b.name)}</b>${b.name === row.default_branch ? ' <span class="git-chip">default</span>' : ''}</span><small>${esc(b.subject)} · ${esc(ago(b.date))}</small><code>${esc(b.sha.slice(0, 7))}</code></a></li>`).join('')}</ul>` : kit.empty({ icon: 'branch', title: 'No branches yet', text: 'Push a branch and it appears here.' })}</div>`;
+${branches.length ? `<ul class="git-refs">${branches.map((b) => `<li><a href="${base}/tree${qs({ ref: b.name })}"><span>${icon('code')} <b>${esc(b.name)}</b>${b.name === row.default_branch ? ' <span class="git-chip">default</span>' : ''}</span><small>${esc(b.subject)} · ${esc(ago(b.date))}</small><code>${esc(b.sha.slice(0, 7))}</code></a></li>`).join('')}</ul>` : kit.empty({ icon: 'code', title: 'No branches yet', text: 'Push a branch and it appears here.' })}</div>`;
 }
 
 function tagsPage({ row, tags }) {
