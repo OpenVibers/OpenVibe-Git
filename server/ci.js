@@ -11,7 +11,8 @@
  * running one, and the runner sees that on its heartbeat and stops.
  *
  * The verdict is copied into git_commit_statuses as `forge/test` (the same intake the GitHub check-runs use), and
- * the log lives on the run so the forge can show it.
+ * posted to GitHub as a commit status on the same commit, so a pull request shows the forge's result too. The log
+ * lives on the run so the forge can show it.
  */
 const STATES = Object.freeze(['queued', 'running', 'success', 'failure', 'error', 'timed_out', 'superseded']);
 const FINAL = new Set(['success', 'failure', 'error', 'timed_out']);
@@ -83,6 +84,28 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
     const runUrl = (row, id) => `${base()}/${row.owner_username}/${row.name}/ci/${id}`;
     const fullName = (row) => `${row.owner_username}/${row.name}`;
 
+    /** A forge state as GitHub's status API names it. */
+    const githubState = (state) => (state === 'success' ? 'success' : state === 'error' ? 'error' : state === 'pending' ? 'pending' : 'failure');
+
+    /**
+     * The same status on GitHub, so the pull request shows `forge/test` beside GitHub Actions. A token without
+     * commit-status write, a commit GitHub does not know (a forge-only push) or a GitHub outage is logged and
+     * never fails the run: the forge status is already written.
+     */
+    async function reportToGithub(row, sha, { state, description = '', target_url = '' }) {
+        if (!settings.githubStatuses) return { ok: false, skipped: 'off' };
+        if (!row || !row.github_full_name) return { ok: false, skipped: 'not-github' };
+        try {
+            await github.status(row.github_full_name, sha, {
+                context: settings.context || CONTEXT, state: githubState(state), description, target_url,
+            });
+            return { ok: true };
+        } catch (err) {
+            log.warn(`[OpenVibe.Git] GitHub status ${row.github_full_name} ${String(sha).slice(0, 12)}: ${text(err.message, 200)}`);
+            return { ok: false, error: err.status || 'unavailable' };
+        }
+    }
+
     async function settingsFor(repoId) {
         return await store.maybe('SELECT * FROM git_ci_repos WHERE repo_id = ?', [repoId]);
     }
@@ -153,6 +176,7 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
         await checks.recordIfChanged(row.id, clean, {
             context: settings.context || CONTEXT, state: 'pending', description: 'Queued on the forge runner', target_url: runUrl(row, id),
         }, 'svc:forge-runner').catch((err) => log.warn('[OpenVibe.Git] CI pending status:', err.message));
+        await reportToGithub(row, clean, { state: 'pending', description: 'Queued on the forge runner', target_url: runUrl(row, id) });
         return { run: rowToRun(run, { baseUrl: base(), owner: row.owner_username, name: row.name }) };
     }
 
@@ -317,6 +341,7 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
             await checks.recordIfChanged(repo.id, row.sha, {
                 context: settings.context || CONTEXT, state: checkState, description: line, target_url: runUrl(repo, id),
             }, 'svc:forge-runner').catch((err) => log.warn('[OpenVibe.Git] CI status:', err.message));
+            await reportToGithub(repo, row.sha, { state: checkState, description: line, target_url: runUrl(repo, id) });
         }
         return { ok: true, run: rowToRun({ ...row, state, description: line, exit_code, duration_ms: elapsed, finished_at: new Date(now()).toISOString() }, { baseUrl: base(), owner: repo && repo.owner_username, name: repo && repo.name }) };
     }

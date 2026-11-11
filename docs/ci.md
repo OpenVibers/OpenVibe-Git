@@ -17,7 +17,11 @@ A run is made only when all of these are true:
 
 It never runs for a pull request, a pull request from a fork, a push to a fork, a tag, a bot, or a non-member.
 A repository with no CI entry is not tested here. The checks intake from GitHub (`server/checks-intake.js`) keeps
-copying GitHub's check-runs, so a change can show both `test` (GitHub) and `forge/test` (here).
+copying GitHub's check-runs, so a change can show both `test` (GitHub) and `forge/test` (here). The same
+`forge/test` status is written to GitHub through the commit-status API, so the **pull request** on GitHub shows the
+forge's result too, with the run on the forge as its target. A token without commit-status write answers 403: the
+run still finishes and the forge status is still written; only the GitHub copy is missing, with a warning in the
+service log.
 
 **One run per repository is live.** A newer branch push supersedes the queued or running one: the older run becomes
 `superseded`, its runner sees that on the next heartbeat (every 15 s), kills its sandbox and reports no verdict.
@@ -155,7 +159,7 @@ because there is no install cache on GitHub and no queue here.
 - `migrations/0008_ci_runs.sql` — `git_ci_repos` (enabled, commands, image, limits) and `git_ci_runs` (state, log,
   timings), with a partial unique index that keeps one live run per repository.
 - `server/ci.js` — the member rule, enqueue and supersede, claim/heartbeat/log/finish, the reaper and the
-  `forge/test` status.
+  `forge/test` status (written to the forge and, with `GIT_CI_GITHUB_STATUSES`, to the GitHub commit too).
 - `server/ci-auth.js` — the runner token's scrypt hash and the constant-time check.
 - `server/http/api.js` — `/api/v1/ci/*` (runner token) and `/api/v1/repos/:owner/:name/ci*` (public reads, owner
   manual runs).
