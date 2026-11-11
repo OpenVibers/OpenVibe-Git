@@ -5,6 +5,7 @@
  * line on the left, and one merge box on the right (one column on a phone, the box first). Buttons are sized to their
  * words; only Merge is filled; Close is quiet. Every form keeps its fields and routes (server/http/review.js).
  */
+const kit = require('openvibe-shared/kit');
 const { esc } = require('../render/html');
 const { renderMarkdown } = require('../render/markdown');
 const glyphs = require('openvibe-shared/glyphs');
@@ -60,7 +61,7 @@ function list(r, kind, items) {
     const path = kind === 'change' ? 'changes' : 'issues';
     const rows = items.map((c) => `<li><a class="git-row" href="${base(r)}/${path}/${c.number}">${state(c.state)}<span class="git-row-title">${esc(c.title)}</span><span class="git-row-num">#${c.number}</span>${(c.labels || []).map((l) => `<small class="git-label">${esc(l)}</small>`).join('')}</a></li>`).join('');
     return wrap(r, kind === 'change' ? 'Changes' : 'Issues', `<div class="git-list-bar"><a class="ovk-btn ovk-btn--primary" href="${base(r)}/${path}/new">${ic('plus')}<span>New ${kind}</span></a></div>
-${rows ? `<ul class="git-review-list">${rows}</ul>` : `<div class="git-empty">${ic(kind === 'change' ? 'branch' : 'chat', 22)}<p><b>No ${kind === 'change' ? 'changes' : 'issues'} yet</b></p><p class="git-muted">${kind === 'change' ? 'Push a branch, then open a change to ask for it to be merged.' : 'Report a problem or suggest something for this repository.'}</p></div>`}`, path);
+${rows ? `<ul class="git-review-list">${rows}</ul>` : kit.empty({ icon: kind === 'change' ? 'code' : 'chat', title: `No ${kind === 'change' ? 'changes' : 'issues'} yet`, text: kind === 'change' ? 'Push a branch, then open a change to ask for it to be merged.' : 'Report a problem or suggest something for this repository.', action: { href: `${base(r)}/${path}/new`, label: `Open ${kind === 'change' ? 'a change' : 'an issue'}`, icon: 'plus' } })}`, path);
 }
 
 function form(r, kind) {

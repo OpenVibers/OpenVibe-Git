@@ -64,7 +64,7 @@ function machinesPage({ viewer, machines = [], error = null }) {
     return `<div class="git-list-page">
 <header class="git-page-head"><h1>Your computers</h1><p>Repositories on your own computers, published through Link. Read-only: Git can look, never write. Browsing works while the computer is online.</p></header>
 ${error ? `<p class="git-error" role="alert">${esc(error)}</p>` : ''}
-${machines.length ? `<ul class="git-refs git-machines">${rows}</ul>` : '<p class="git-empty">No computer is connected yet.</p>'}
+${machines.length ? `<ul class="git-refs git-machines">${rows}</ul>` : kit.empty({ icon: 'computer', title: 'No computer is connected yet', text: 'Link publishes the repositories under a folder on your computer. Connect one below to browse them here.', action: { href: '/machines', label: 'Connect a computer', icon: 'computer' } })}
 <details class="git-fold"><summary class="ovk-btn ovk-btn--primary">${icon('plus')} Connect a computer</summary>
 <form method="post" action="/machines" class="git-form">
   <label>Name <input name="name" maxlength="80" placeholder="my laptop"></label>
@@ -94,7 +94,7 @@ function machinePage({ machine, repos = [] }) {
     return `<div class="git-list-page">
 <header class="git-page-head"><p class="git-crumb"><a href="/machines">Your computers</a></p><h1>${esc(machine.name)}</h1>
 <p>${machine.online ? 'Online now, read-only through Link.' : `Offline since ${esc(ago(machine.offline_since || machine.last_seen_at))}. Start Link to browse.`}</p></header>
-${repos.length ? `<ul class="git-refs git-machines">${rows}</ul>` : '<p class="git-empty">No repositories under the root yet.</p>'}
+${repos.length ? `<ul class="git-refs git-machines">${rows}</ul>` : kit.empty({ icon: 'code', title: 'No repositories under the root yet', text: 'Choose a folder on the computer when Link asks where to publish from.' })}
 </div>`;
 }
 
@@ -144,7 +144,7 @@ function machineCommitsPage({ machine, repo, ref, path = '', commits = [], offli
 ${commits.length ? `<ul class="git-commit-list">${commits.map((c) => `<li><a href="${base}/commits${qs({ ref })}">
 <span class="git-avatar git-avatar--commit">${icon('commit')}</span>
 <span class="git-commit-main"><b>${esc(c.subject || '(no message)')}</b><small>${esc(c.author)} · ${esc(ago(c.date))}</small></span>
-<span class="git-commit-sha"><code>${esc(c.short || c.sha.slice(0, 7))}</code></span></a></li>`).join('')}</ul>` : '<p class="git-empty">No commits here yet.</p>'}
+<span class="git-commit-sha"><code>${esc(c.short || c.sha.slice(0, 7))}</code></span></a></li>`).join('')}</ul>` : kit.empty({ icon: 'code', title: 'No commits here yet', text: 'The first commit starts the history.' })}
 </div>`;
 }
 
