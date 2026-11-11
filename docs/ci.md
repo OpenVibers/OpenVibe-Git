@@ -31,7 +31,9 @@ error when the runner reports; a timed-out run is a failure.
    while the mirror catches up with the webhook.
 3. **Install phase** — inside the sandbox, with one writable path (`/workspace`, the per-run directory) and the
    network only through the runner's proxy, which allows exactly `registry.npmjs.org` and `codeload.github.com`
-   (the pinned OpenVibe tarballs). Everything else is refused, including private and link-local addresses.
+   (the pinned OpenVibe tarballs). Everything else is refused, including private and link-local addresses. A
+   dependency whose postinstall downloads with Node's own `fetch` (mediasoup's worker, onnxruntime's CUDA package)
+   does not see that proxy, so those binaries are baked into a local image instead of fetched during the run.
 4. **Test phase** — a fresh sandbox with **no network at all** (`--network=none` / an empty network namespace),
    the same workspace, no proxy socket mounted.
 5. The log streams to the forge while it runs; the verdict goes back with the duration and is written as the
@@ -40,8 +42,20 @@ error when the runner reports; a timed-out run is a failure.
 
 The commands, image and limit are per repository, registered by the runner from `~/.config/openvibe/git-ci.json`.
 The defaults are `npm ci --no-audit --no-fund` then `npm test`, the image `docker.io/library/node:22-bookworm`, and
-30 minutes. `OpenVibe.Games` uses pnpm (`corepack enable --install-directory /workspace/.pnpm/bin &&
-pnpm install --frozen-lockfile`, then `pnpm typecheck && pnpm lint && pnpm test`).
+30 minutes. The first five repositories use three local images on top of the node image:
+
+- `localhost/openvibe-ci-node22:1` — node 22 + pnpm 10.6.5 (`OpenVibe.Games`), because Corepack downloads pnpm with
+  Node's `fetch`, which has no proxy.
+- `localhost/openvibe-ci-node22-ffmpeg:1` — the pnpm image + ffmpeg (`OpenVibe.Chat`), matching GitHub's
+  `apt-packages: ffmpeg`.
+- `localhost/openvibe-ci-node22-mediasoup:1` — node 22 + the mediasoup 3.25.0 prebuilt worker, kernel6 asset
+  (`OpenVibe.Live`); `MEDIASOUP_WORKER_BIN` points at it, so the postinstall does not fetch from GitHub. Live's
+  install also sets `ONNXRUNTIME_NODE_INSTALL=skip`: the CUDA package is not needed on this CPU-only host and
+  would fetch from NuGet.
+
+The runner's own relay and proxy socket live in the container's `/run` tmpfs, never in the checkout: a
+repository's linter must not see them. `OpenVibe.Games`' pnpm store is `node_modules/.pnpm-store` for the same
+reason.
 
 ## How it is contained
 
@@ -118,6 +132,23 @@ node runner/token.js --out ~/.config/openvibe/git-ci.token   # prints the scrypt
 The service holds only the scrypt hash of the token (`deploy/ci/runner-token`, or `GIT_CI_RUNNER_TOKEN` in
 `/etc/openvibe/git.env`). To rotate: make a new token, put the new line in the repository, deploy, restart the
 runner. The old token stops working when the new line is live.
+
+## Measured (2026-11-11 UTC)
+
+Same commit per row; forge time is claim → verdict, GitHub time is `run_started_at` → `updated_at`. Both include
+install and tests; GitHub's queue is not included.
+
+| repository | head | forge | GitHub |
+|---|---|---|---|
+| OpenVibe.Shared | `58934cc` | **1m 35s** success | 10m 53s success (the same head also had a 12m 59s failure) |
+| OpenVibe.Games | `4070e5f` | **3m 46s** success | 13m 56s success |
+| OpenVibe.Network | `ea86dc2` | **11m 29s** success | 22m 52s success |
+| OpenVibe.Chat | `85d60a8` | **20m 13s** success | 18m 30s success |
+| OpenVibe.Live | `9e4c000` | **7m 56s** success | 10m 59s success |
+
+Chat is the one slower forge run (20m 13s against 18m 30s): the old i7-4770K runs the 134-file suite serially, while
+GitHub's runner is a newer 4-vCPU machine, and the forge run has no warm cache. The other four are faster, mostly
+because there is no install cache on GitHub and no queue here.
 
 ## The service side
 

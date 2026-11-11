@@ -16,6 +16,20 @@ const { spawnSync } = require('node:child_process');
 const UID = 1000;
 const GID = 1000;
 
+// The loopback relay from the container's TCP proxy port to the Unix socket the runner exposes. It lives in
+// /run (a tmpfs), never in the checked-out repository: a repository's linter must not see the runner's files.
+const RELAY = `'use strict';
+const net = require('node:net');
+const [sock, port] = process.argv.slice(2);
+const server = net.createServer((client) => {
+  const upstream = net.connect(sock);
+  client.pipe(upstream); upstream.pipe(client);
+  client.on('error', () => upstream.destroy());
+  upstream.on('error', () => client.destroy());
+});
+server.listen(Number(port), '127.0.0.1');
+`;
+
 function have(command) {
     const out = spawnSync(command, ['--version'], { encoding: 'utf8', timeout: 10_000 });
     return !out.error && out.status === 0;
@@ -52,7 +66,8 @@ const envList = (extra = {}) => ({
     npm_config_fund: 'false',
     npm_config_audit: 'false',
     npm_config_update_notifier: 'false',
-    PNPM_HOME: '/workspace/.pnpm',
+    PNPM_HOME: '/workspace/.home/.pnpm',
+    npm_config_store_dir: '/workspace/node_modules/.pnpm-store',
     ...extra,
 });
 
@@ -60,7 +75,9 @@ const envList = (extra = {}) => ({
 function installScript(command, { proxy = true } = {}) {
     return `#!/bin/sh
 set -eu
-${proxy ? `node /workspace/.ci/relay.cjs /workspace/.ci/proxy.sock 3128 &
+${proxy ? `cat > /run/relay.cjs <<'OV_RELAY'
+${RELAY}OV_RELAY
+node /run/relay.cjs /run/ci-proxy.sock 3128 &
 relay=$!
 trap 'kill "$relay" 2>/dev/null || true' EXIT
 export http_proxy=http://127.0.0.1:3128 https_proxy=http://127.0.0.1:3128
@@ -81,13 +98,13 @@ function podmanArgs({ name, workspace, image, limits, proxySock = null, script }
         'run', '--rm', '--name', name, '--pull=never', '--network=none',
         '--cpus', String(limits.cpus), '--memory', `${limits.memory_mb}m`, '--memory-swap', `${limits.memory_mb}m`,
         '--pids-limit', '2048', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-        '--read-only', '--tmpfs', '/tmp:rw,exec,size=2g', '--shm-size', '512m',
+        '--read-only', '--tmpfs', '/tmp:rw,exec,size=2g', '--tmpfs', '/run:rw,exec,size=64m,mode=1777', '--shm-size', '512m',
         '--userns=keep-id', '--workdir', '/workspace',
         '-v', `${workspace}:/workspace:rw`,
         '--stop-timeout', '5',
     ];
     for (const [key, value] of Object.entries(envList())) args.push('-e', `${key}=${value}`);
-    if (proxySock) args.push('-v', `${proxySock}:/workspace/.ci/proxy.sock:rw`);
+    if (proxySock) args.push('-v', `${proxySock}:/run/ci-proxy.sock:rw`);
     args.push(image, '/bin/sh', '-c', script);
     return args;
 }
@@ -149,9 +166,9 @@ function bwrapArgs({ workspace, limits, proxySock = null, script }) {
     for (const name of ['passwd', 'group', 'hosts', 'hostname', 'resolv.conf', 'nsswitch.conf']) {
         args.push('--ro-bind', path.join(etc, name), `/etc/${name}`);
     }
-    args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp');
+    args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--perms', '1777', '--tmpfs', '/run');
     args.push('--bind', workspace, '/workspace');
-    if (proxySock) args.push('--bind', proxySock, '/workspace/.ci/proxy.sock');
+    if (proxySock) args.push('--bind', proxySock, '/run/ci-proxy.sock');
     args.push('--remount-ro', '/', '--chdir', '/workspace', '--', '/bin/sh', '-c', script);
     return { args, nodeInside };
 }
@@ -181,5 +198,5 @@ function scopeCleanup(unit) {
 }
 
 module.exports = {
-    detectEngine, podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, envList, UID, GID,
+    detectEngine, podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, envList, UID, GID, RELAY,
 };

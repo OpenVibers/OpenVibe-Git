@@ -64,6 +64,27 @@ EOF
         printf 'FROM docker.io/library/node:22-bookworm\nRUN npm install -g pnpm@10.6.5\n' \
             | $PODMAN build --pull=never -t localhost/openvibe-ci-node22:1 -
     fi
+    # Chat's sound tests convert audio, as GitHub's ffmpeg apt step does.
+    if ! $PODMAN image exists localhost/openvibe-ci-node22-ffmpeg:1; then
+        say "building localhost/openvibe-ci-node22-ffmpeg:1 (the pnpm image + ffmpeg)"
+        printf 'FROM localhost/openvibe-ci-node22:1\nRUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*\n' \
+            | $PODMAN build --pull=never -t localhost/openvibe-ci-node22-ffmpeg:1 -
+    fi
+    # Live's mediasoup postinstall downloads a prebuilt worker from GitHub; Node's fetch has no proxy, so the
+    # worker is baked into the image instead. kernel6 is the asset whose libstdc++ matches bookworm.
+    if ! $PODMAN image exists localhost/openvibe-ci-node22-mediasoup:1; then
+        say "building localhost/openvibe-ci-node22-mediasoup:1 (node 22 + the mediasoup worker)"
+        cat <<'DOCKER' | $PODMAN build --pull=never -t localhost/openvibe-ci-node22-mediasoup:1 -
+FROM docker.io/library/node:22-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+ && mkdir -p /opt/mediasoup \
+ && curl -fsSL https://github.com/versatica/mediasoup/releases/download/3.25.0/mediasoup-worker-3.25.0-linux-x64-kernel6.tgz -o /tmp/w.tgz \
+ && tar -xzf /tmp/w.tgz -C /opt/mediasoup \
+ && chmod 0755 /opt/mediasoup/mediasoup-worker \
+ && rm -f /tmp/w.tgz && rm -rf /var/lib/apt/lists/*
+ENV MEDIASOUP_WORKER_BIN=/opt/mediasoup/mediasoup-worker
+DOCKER
+    fi
 elif command -v bwrap >/dev/null 2>&1; then
     say "sandbox engine: bubblewrap $(bwrap --version | awk '{print $2}') (podman is not rootless here)"
 else

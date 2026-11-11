@@ -11,19 +11,9 @@ const path = require('node:path');
 const { execFile, spawnSync } = require('node:child_process');
 const { createProxy } = require('./proxy');
 const { runProcess } = require('./process');
-const { podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, detectEngine } = require('./sandbox');
+const { podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, detectEngine, RELAY } = require('./sandbox');
 
-const RELAY = `'use strict';
-const net = require('node:net');
-const [sock, port] = process.argv.slice(2);
-const server = net.createServer((client) => {
-  const upstream = net.connect(sock);
-  client.pipe(upstream); upstream.pipe(client);
-  client.on('error', () => upstream.destroy());
-  upstream.on('error', () => client.destroy());
-});
-server.listen(Number(port), '127.0.0.1');
-`;
+
 
 const git = (args, cwd, timeoutMs = 180_000) => new Promise((resolve, reject) => {
     execFile('git', args, { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '' } }, (err, stdout, stderr) => {
@@ -99,7 +89,6 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
         fs.mkdirSync(path.join(runDir, '.home'), { recursive: true });
         fs.mkdirSync(path.join(runDir, '.cache', 'npm'), { recursive: true });
         fs.mkdirSync(path.join(runDir, '.pnpm'), { recursive: true });
-        fs.writeFileSync(path.join(runDir, '.ci', 'relay.cjs'), RELAY, { mode: 0o600 });
         fs.writeFileSync(localLog, '', { mode: 0o600 });
 
         const limits = job.limits || { timeout_seconds: 1800, cpus: 4, memory_mb: 6144 };
