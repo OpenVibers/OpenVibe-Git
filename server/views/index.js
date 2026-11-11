@@ -52,17 +52,17 @@ function home({ viewer, stats, trending = [], activity = [], official = [], base
 
 <section class="git-section" aria-labelledby="git-trending-h">
   <div class="git-section-head"><h2 id="git-trending-h">Trending this week</h2><a href="/explore?sort=trending">All repositories</a></div>
-  ${trending.length ? `<ul class="git-cards">${trending.map(card).join('')}</ul>` : '<p class="git-empty">No repositories yet. <a href="/new">Make the first one</a>.</p>'}
+  ${trending.length ? `<ul class="git-cards">${trending.map(card).join('')}</ul>` : kit.empty({ icon: 'code', title: 'No repositories yet', text: signedIn ? 'Make the first one: an empty repository, a starter app or a mirror of a public GitHub URL.' : 'Sign in and make the first one: an empty repository, a starter app or a mirror of a public GitHub URL.', action: { href: signedIn ? '/new' : '/auth/login?next=%2Fnew', label: 'New repository', icon: 'plus' } })}
 </section>
 
 <div class="git-split">
 <section class="git-section" aria-labelledby="git-activity-h">
   <div class="git-section-head"><h2 id="git-activity-h">Recent activity</h2></div>
-  ${activity.length ? `<ul class="git-activity">${activity.map(activityRow).join('')}</ul>` : '<p class="git-empty">Nothing has happened yet.</p>'}
+  ${activity.length ? `<ul class="git-activity">${activity.map(activityRow).join('')}</ul>` : kit.empty({ icon: 'clock', title: 'Nothing has happened yet', text: 'Pushes, changes and issues appear here as people work.', action: { href: '/explore', label: 'Explore repositories', icon: 'search' } })}
 </section>
 <section class="git-section" aria-labelledby="git-official-h">
   <div class="git-section-head"><h2 id="git-official-h">Official OpenVibe repositories</h2></div>
-  ${official.length ? `<ul class="git-official">${official.map((r) => `<li><a class="git-official-main" href="/${esc(r.full_name)}"><span class="git-avatar git-avatar--org">${icon('code')}</span><span><b>${esc(r.name)}</b><small>${esc(r.description || 'The OpenVibe projects.')}</small></span></a>${r.github_full_name ? `<a class="git-official-gh" href="https://github.com/${esc(r.github_full_name)}" rel="noopener">${icon('open')} GitHub</a>` : ''}</li>`).join('')}</ul>` : '<p class="git-empty">The official repositories are on their way.</p>'}
+  ${official.length ? `<ul class="git-official">${official.map((r) => `<li><a class="git-official-main" href="/${esc(r.full_name)}"><span class="git-avatar git-avatar--org">${icon('code')}</span><span><b>${esc(r.name)}</b><small>${esc(r.description || 'The OpenVibe projects.')}</small></span></a>${r.github_full_name ? `<a class="git-official-gh" href="https://github.com/${esc(r.github_full_name)}" rel="noopener">${icon('open')} GitHub</a>` : ''}</li>`).join('')}</ul>` : kit.empty({ icon: 'code', title: 'The official repositories are on their way', text: 'The OpenVibe projects appear here once their mirrors are up.' })}
 </section>
 </div>
 
@@ -111,7 +111,7 @@ function explore({ viewer, repositories = [], query = '', filters = {}, next = n
   ${chip('mine', 'Mine', keep({ mine: 1 }), filters.mine)}
   ${chip('starred', 'Starred', keep({ starred: 1 }), filters.starred)}
 </nav>
-${repositories.length ? `<ul class="git-cards git-cards--wide">${repositories.map(card).join('')}</ul>` : `<p class="git-empty">Nothing matches. ${query ? `No repository matches “${esc(query)}”.` : 'Try another filter.'} <a href="/new">Make one</a>.</p>`}
+${repositories.length ? `<ul class="git-cards git-cards--wide">${repositories.map(card).join('')}</ul>` : kit.empty({ icon: 'search', title: 'Nothing matches', text: query ? `No repository matches “${query}”. Try another filter, or make one.` : 'Try another filter, or make one.', action: { href: '/new', label: 'Make a repository', icon: 'plus' } })}
 ${next ? `<a class="ovk-btn ovk-btn--ghost git-more" href="/explore${qs({ ...base, ...(filters.official ? { official: 1 } : {}), ...(filters.mirror ? { mirror: 1 } : {}), ...(filters.mine ? { mine: 1 } : {}), ...(filters.starred ? { starred: 1 } : {}), cursor: next })}">More</a>` : ''}
 </div>`;
 }
@@ -348,7 +348,7 @@ ${commits.length ? `<ul class="git-commit-list">${commits.map((c) => `<li><a hre
 <span class="git-avatar git-avatar--commit">${icon('code')}</span>
 <span class="git-commit-main"><b>${esc(c.subject || c.message || '(no message)')}</b><small>${esc(c.author.name)} · ${esc(ago(c.date))}</small></span>
 <span class="git-commit-sha"><code>${esc(c.short || c.sha.slice(0, 7))}</code></span>
-</a></li>`).join('')}</ul>` : '<p class="git-empty">No commits here yet.</p>'}
+</a></li>`).join('')}</ul>` : kit.empty({ icon: 'code', title: 'No commits here yet', text: 'The first commit starts the history.' })}
 ${next ? `<a class="ovk-btn ovk-btn--ghost git-more" href="${base}/commits${qs({ ref, path: filePath, cursor: next })}">More commits</a>` : ''}
 </div>`;
 }
@@ -396,20 +396,20 @@ ${diff && commit.diff ? `<div class="git-diff" data-git-diff><div class="git-dif
 function branchesPage({ row, branches }) {
     const base = `/${row.owner_username}/${row.name}`;
     return `<div class="git-list-page"><header class="git-page-head"><p class="git-crumb"><a href="${base}">${esc(row.full_name || `${row.owner_username}/${row.name}`)}</a></p><h1>Branches</h1></header>${repoTabs(row, 'branches')}
-${branches.length ? `<ul class="git-refs">${branches.map((b) => `<li><a href="${base}/tree${qs({ ref: b.name })}"><span>${icon('code')} <b>${esc(b.name)}</b>${b.name === row.default_branch ? ' <span class="git-chip">default</span>' : ''}</span><small>${esc(b.subject)} · ${esc(ago(b.date))}</small><code>${esc(b.sha.slice(0, 7))}</code></a></li>`).join('')}</ul>` : '<p class="git-empty">No branches yet.</p>'}</div>`;
+${branches.length ? `<ul class="git-refs">${branches.map((b) => `<li><a href="${base}/tree${qs({ ref: b.name })}"><span>${icon('code')} <b>${esc(b.name)}</b>${b.name === row.default_branch ? ' <span class="git-chip">default</span>' : ''}</span><small>${esc(b.subject)} · ${esc(ago(b.date))}</small><code>${esc(b.sha.slice(0, 7))}</code></a></li>`).join('')}</ul>` : kit.empty({ icon: 'branch', title: 'No branches yet', text: 'Push a branch and it appears here.' })}</div>`;
 }
 
 function tagsPage({ row, tags }) {
     const base = `/${row.owner_username}/${row.name}`;
     return `<div class="git-list-page"><header class="git-page-head"><p class="git-crumb"><a href="${base}">${esc(row.full_name || `${row.owner_username}/${row.name}`)}</a></p><h1>Tags</h1></header>${repoTabs(row, 'tags')}
-${tags.length ? `<ul class="git-refs">${tags.map((t) => `<li><a href="${base}/tree${qs({ ref: t.name })}"><span>${icon('tag')} <b>${esc(t.name)}</b></span><small>${esc(t.subject)} · ${esc(ago(t.date))}</small><code>${esc(t.sha.slice(0, 7))}</code></a></li>`).join('')}</ul>` : '<p class="git-empty">No tags yet.</p>'}</div>`;
+${tags.length ? `<ul class="git-refs">${tags.map((t) => `<li><a href="${base}/tree${qs({ ref: t.name })}"><span>${icon('tag')} <b>${esc(t.name)}</b></span><small>${esc(t.subject)} · ${esc(ago(t.date))}</small><code>${esc(t.sha.slice(0, 7))}</code></a></li>`).join('')}</ul>` : kit.empty({ icon: 'tag', title: 'No tags yet', text: 'Tag a commit to mark a release.' })}</div>`;
 }
 
 function releasesPage({ row, releases, viewer }) {
     const base = `/${row.owner_username}/${row.name}`;
     const canPublish = viewer && viewer.kind === 'user';
     return `<div class="git-list-page"><header class="git-page-head"><p class="git-crumb"><a href="${base}">${esc(row.full_name || `${row.owner_username}/${row.name}`)}</a></p><h1>Releases</h1></header>${repoTabs(row, 'releases')}
-${releases.length ? `<ul class="git-releases">${releases.map((r) => `<li><div class="git-release-head"><h2>${esc(r.name || r.tag)}</h2><span class="git-chip">${esc(r.tag)}</span><small>${esc(date(r.published_at))}</small></div>${r.body ? `<div class="git-md">${renderMarkdown(r.body)}</div>` : '<p class="git-empty">No notes yet.</p>'}${r.sha ? `<p class="git-release-sha"><a href="${base}/commit/${esc(r.sha)}"><code>${esc(r.sha.slice(0, 10))}</code></a></p>` : ''}</li>`).join('')}</ul>` : '<p class="git-empty">No releases yet. A tag becomes a release when its notes are written.</p>'}
+${releases.length ? `<ul class="git-releases">${releases.map((r) => `<li><div class="git-release-head"><h2>${esc(r.name || r.tag)}</h2><span class="git-chip">${esc(r.tag)}</span><small>${esc(date(r.published_at))}</small></div>${r.body ? `<div class="git-md">${renderMarkdown(r.body)}</div>` : kit.empty({ icon: 'tag', title: 'No notes yet', text: 'Write what changed in this release.' })}${r.sha ? `<p class="git-release-sha"><a href="${base}/commit/${esc(r.sha)}"><code>${esc(r.sha.slice(0, 10))}</code></a></p>` : ''}</li>`).join('')}</ul>` : kit.empty({ icon: 'tag', title: 'No releases yet', text: 'A tag becomes a release when its notes are written.' })}
 ${canPublish ? `<details class="git-fold"><summary class="ovk-btn ovk-btn--ghost">${icon('plus')} Write release notes</summary><form method="post" action="${base}/releases" class="git-form"><label>Tag <input name="tag" required placeholder="v1.0.0"></label><label>Name <input name="name" placeholder="First release"></label><label>Notes <textarea name="body" rows="5" placeholder="What changed"></textarea></label><button class="ovk-btn ovk-btn--primary" type="submit">Publish</button></form></details>` : ''}
 </div>`;
 }
@@ -417,7 +417,7 @@ ${canPublish ? `<details class="git-fold"><summary class="ovk-btn ovk-btn--ghost
 function contributorsPage({ row, contributors }) {
     const base = `/${row.owner_username}/${row.name}`;
     return `<div class="git-list-page"><header class="git-page-head"><p class="git-crumb"><a href="${base}">${esc(row.full_name || `${row.owner_username}/${row.name}`)}</a></p><h1>Contributors</h1></header>${repoTabs(row, 'contributors')}
-${contributors.length ? `<ul class="git-people">${contributors.map((c) => `<li><span class="git-avatar">${esc(initials(c.name))}</span><span><b>${esc(c.name)}</b>${c.username ? ` <a href="/@${esc(c.username)}">@${esc(c.username)}</a>` : ''}<small>${esc(c.email)}</small></span><em>${plural(c.commits, 'commit')}</em></li>`).join('')}</ul>` : '<p class="git-empty">No contributors yet.</p>'}</div>`;
+${contributors.length ? `<ul class="git-people">${contributors.map((c) => `<li><span class="git-avatar">${esc(initials(c.name))}</span><span><b>${esc(c.name)}</b>${c.username ? ` <a href="/@${esc(c.username)}">@${esc(c.username)}</a>` : ''}<small>${esc(c.email)}</small></span><em>${plural(c.commits, 'commit')}</em></li>`).join('')}</ul>` : kit.empty({ icon: 'members', title: 'No contributors yet', text: 'People who commit to this repository appear here.' })}</div>`;
 }
 
 function insightsPage({ row, data }) {
@@ -442,7 +442,7 @@ ${repoTabs(row, 'insights')}
 // ── Profile, new, messages ───────────────────────────────────
 function profilePage({ profile }) {
     return `<div class="git-profile"><header class="git-profile-head"><span class="git-avatar git-avatar--big">${esc(initials(profile.username))}</span><div><h1>@${esc(profile.username)}</h1><p>${plural(profile.repositories.length, 'public repository', 'public repositories')} on OpenVibe Git.</p></div></header>
-${profile.repositories.length ? `<ul class="git-cards git-cards--wide">${profile.repositories.map(card).join('')}</ul>` : '<p class="git-empty">No public repositories yet.</p>'}</div>`;
+${profile.repositories.length ? `<ul class="git-cards git-cards--wide">${profile.repositories.map(card).join('')}</ul>` : kit.empty({ icon: 'code', title: 'No public repositories yet', text: 'When this person makes one public it appears here.' })}</div>`;
 }
 
 function newPage({ viewer, values = {}, error = null }) {

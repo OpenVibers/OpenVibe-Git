@@ -4,6 +4,7 @@
  * The CI pages: the runs of one repository and one run's log. Plain and readable, no JavaScript needed. The
  * verdict is also a commit status ("forge/test") on the change page and in the API.
  */
+const kit = require('openvibe-shared/kit');
 const { esc } = require('../render/html');
 const { repoTabs } = require('./index');
 
@@ -39,7 +40,7 @@ function list({ row, enabled, runs, context }) {
     return `<div class="git-list-page"><header class="git-page-head"><p class="git-crumb"><a href="${b}">${esc(row.owner_username)}/${esc(row.name)}</a></p><h1>CI</h1>
 <p>${enabled ? `The forge runner tests branch pushes by OpenVibers members and reports <code>${esc(context)}</code>.` : 'Forge CI is not enabled for this repository; GitHub Actions still runs.'}</p></header>
 ${repoTabs(row, 'ci')}
-${runs.length ? `<ul class="git-ci-list">${rows}</ul>` : '<p class="git-empty">No forge runs yet.</p>'}
+${runs.length ? `<ul class="git-ci-list">${rows}</ul>` : kit.empty({ icon: 'gear', title: 'No forge runs yet', text: 'A run appears here when someone pushes a branch.' })}
 <p class="git-muted git-small">The runner clones the branch, installs dependencies through an allowlisted proxy, then runs the tests with no network at all. Logs stay on the run they belong to.</p></div>`;
 }
 

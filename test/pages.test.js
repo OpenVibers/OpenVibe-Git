@@ -66,6 +66,18 @@ const { boot } = require('./helpers/boot');
         assert.equal(doc.status, 200);
         assert.equal(doc.json().openapi, '3.1.0');
 
+        // Empty states are the shared kit's, with the next action as a button.
+        const views = require('../server/views');
+        const emptyHome = views.home({ viewer: null, stats: { repositories: 0, pushes_this_week: 0, people: 0, clones_this_week: 0 }, trending: [], activity: [], official: [], baseUrl: 'https://git.openvibe.codes' });
+        assert.match(emptyHome, /class="ovk-empty"/);
+        assert.match(emptyHome, /No repositories yet/);
+        assert.match(emptyHome, /ovk-btn[^>]*href="\/auth\/login\?next=%2Fnew"/);
+        assert.match(emptyHome, /Nothing has happened yet/);
+        assert.match(views.explore({ viewer: null, repositories: [], query: 'zzz', filters: {} }), /Nothing matches/);
+        assert.match(views.branchesPage({ row: { owner_username: 'a', name: 'b', default_branch: 'main' }, branches: [] }), /No branches yet/);
+        assert.match(views.releasesPage({ row: { owner_username: 'a', name: 'b' }, releases: [], viewer: null }), /No releases yet/);
+        assert.match(views.profilePage({ profile: { username: 'nobody', repositories: [] } }), /No public repositories yet/);
+
         // No placeholder content anywhere.
         assert.doesNotMatch(home.text, /lorem ipsum/i);
         assert.match(repo.full_name, /sam\/phone-first/);
