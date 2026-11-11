@@ -15,7 +15,8 @@
       "timeout_seconds": 1800
     },
     "openvibers/openvibe.games": {
-      "install_command": "corepack enable --install-directory /workspace/.pnpm/bin && pnpm install --frozen-lockfile",
+      "image": "localhost/openvibe-ci-node22:1",
+      "install_command": "pnpm install --frozen-lockfile",
       "test_command": "pnpm typecheck && pnpm lint && pnpm test",
       "timeout_seconds": 1800
     },
