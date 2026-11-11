@@ -60,7 +60,7 @@ const envList = (extra = {}) => ({
 function installScript(command, { proxy = true } = {}) {
     return `#!/bin/sh
 set -eu
-${proxy ? `node /workspace/.ci/relay.js /workspace/.ci/proxy.sock 3128 &
+${proxy ? `node /workspace/.ci/relay.cjs /workspace/.ci/proxy.sock 3128 &
 relay=$!
 trap 'kill "$relay" 2>/dev/null || true' EXIT
 export http_proxy=http://127.0.0.1:3128 https_proxy=http://127.0.0.1:3128

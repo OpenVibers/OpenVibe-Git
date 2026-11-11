@@ -58,6 +58,12 @@ EOF
         say "pulling node:22-bookworm into $STORAGE_ROOT (the run image)"
         $PODMAN pull docker.io/library/node:22-bookworm
     fi
+    # Games builds with pnpm; corepack would have to download it at run time, and Node's fetch has no proxy.
+    if ! $PODMAN image exists localhost/openvibe-ci-node22:1; then
+        say "building localhost/openvibe-ci-node22:1 (node 22 + pnpm 10.6.5)"
+        printf 'FROM docker.io/library/node:22-bookworm\nRUN npm install -g pnpm@10.6.5\n' \
+            | $PODMAN build --pull=never -t localhost/openvibe-ci-node22:1 -
+    fi
 elif command -v bwrap >/dev/null 2>&1; then
     say "sandbox engine: bubblewrap $(bwrap --version | awk '{print $2}') (podman is not rootless here)"
 else

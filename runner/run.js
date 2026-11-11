@@ -99,7 +99,7 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
         fs.mkdirSync(path.join(runDir, '.home'), { recursive: true });
         fs.mkdirSync(path.join(runDir, '.cache', 'npm'), { recursive: true });
         fs.mkdirSync(path.join(runDir, '.pnpm'), { recursive: true });
-        fs.writeFileSync(path.join(runDir, '.ci', 'relay.js'), RELAY, { mode: 0o600 });
+        fs.writeFileSync(path.join(runDir, '.ci', 'relay.cjs'), RELAY, { mode: 0o600 });
         fs.writeFileSync(localLog, '', { mode: 0o600 });
 
         const limits = job.limits || { timeout_seconds: 1800, cpus: 4, memory_mb: 6144 };
