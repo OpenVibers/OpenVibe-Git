@@ -96,7 +96,7 @@
 .git-search-box svg { width: 18px; height: 18px; color: var(--text-muted); }
 .git-search-box input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text-primary); font: inherit; padding: 10px 0; }
 .git-search-box input:focus { outline: none; }
-.git-search select, .git-field input, .git-field textarea, .git-form input, .git-form textarea {
+.git-search select, .git-field input:not([type=radio]):not([type=checkbox]), .git-field textarea, .git-form input:not([type=radio]):not([type=checkbox]), .git-form textarea {
   min-height: 44px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-input); color: var(--text-primary); font: inherit; max-width: 100%;
 }
 .git-filters { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; position: relative; scrollbar-width: none; }
@@ -313,9 +313,11 @@
 .git-form--new { max-width: 720px; }
 .git-form fieldset { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin: 0; }
 .git-form legend { padding: 0 6px; color: var(--text-secondary); font-size: .86rem; }
-.git-radio { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); cursor: pointer; min-height: 44px; }
-.git-radio input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--accent); }
-.git-radio span { display: grid; }
+/* A choice is one row: a small dot, then its name and what it means (the form's label grid and field box are not for it). */
+.git-form .git-radio, .git-radio { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); cursor: pointer; min-height: 44px; }
+.git-form .git-radio input, .git-radio input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 1px 0 0; padding: 0; border: 0; border-radius: 50%; background: none; accent-color: var(--accent); }
+.git-radio:has(input:checked) { border-color: var(--accent); }
+.git-radio span { display: grid; gap: 2px; min-width: 0; }
 .git-radio small { color: var(--text-muted); font-size: .78rem; }
 .git-owner { display: inline-flex; gap: 4px; align-items: center; padding: 9px 12px; border-radius: 10px; background: var(--bg-input); color: var(--text-secondary); }
 .git-owner i { color: var(--text-muted); font-style: normal; }
