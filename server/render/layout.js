@@ -27,12 +27,19 @@ const NAV = [
 ];
 const API_BASE = 'https://git.openvibe.codes';
 
+// An asset's version is its content hash, kept until the file changes: a static-only deploy (public/ is a no-restart
+// path) swaps the file under a running process, and a hash kept for good sent pages on to the old file for as long as
+// the process lived (11-12: the new-repository form's fixed radios stayed broken after their deploy).
 const hashes = new Map();
 function assetVersion(rel) {
-    if (hashes.has(rel)) return hashes.get(rel);
+    const file = path.join(PUBLIC_DIR, rel);
+    let stamp = null;
+    try { const st = fs.statSync(file); stamp = `${st.mtimeMs}:${st.size}:${st.ino}`; } catch { /* missing asset */ }
+    const kept = hashes.get(rel);
+    if (kept && kept.stamp === stamp) return kept.v;
     let v = 'dev';
-    try { v = crypto.createHash('sha256').update(fs.readFileSync(path.join(PUBLIC_DIR, rel))).digest('hex').slice(0, 10); } catch { /* missing asset */ }
-    hashes.set(rel, v);
+    try { v = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 10); } catch { /* missing asset */ }
+    hashes.set(rel, { stamp, v });
     return v;
 }
 const asset = (rel) => `/${rel}?v=${assetVersion(rel)}`;
