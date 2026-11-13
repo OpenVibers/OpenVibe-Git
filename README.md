@@ -131,5 +131,5 @@ the Link's own `/api/v1/link/clone-requests/:id`, `/api/v1/link/machines/:id/{he
 
 <!-- versions:start -->
 - openvibe-contracts: v0.419.0
-- openvibe-sdk: v0.166.0
+- openvibe-sdk: v0.167.0
 <!-- versions:end -->
