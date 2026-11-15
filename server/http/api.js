@@ -399,6 +399,7 @@ function createApi(ctx) {
             await repos.recordEvent(found.row, 'push', who, { sha: out.sha, branch: out.branch, via: 'api' });
             await repos.audit(who, 'git.commit', found.row, { sha: out.sha, branch: out.branch, via: caller.actor_type === 'service' ? caller.subject : 'api' }, req.ip);
             await mirrors.afterPush(found.row);
+            if (ctx.spacePublish) ctx.spacePublish.afterPush(found.row, { ref: `refs/heads/${out.branch}` });
             return res.status(201).json({ repo: `${found.row.owner_username}/${found.row.name}`, ...out });
         } catch (err) { return fail(req, res, err); }
     }));
@@ -443,11 +444,50 @@ function createApi(ctx) {
         res.status(out.status).json(out.body);
         // A push starts a forge run only after the mirror has the pushed commit; a pull request never does.
         if (out.event === 'push' && out.row && out.payload && out.sync) {
+            if (ctx.spacePublish) out.sync.then(() => ctx.spacePublish.afterPush(out.row, { ref: out.payload.ref })).catch(() => {});
             out.sync
                 .then(() => ci.onGithubPush(out.row, out.payload))
                 .catch((err) => log.warn(`[OpenVibe.Git] CI push ${out.row.owner_username}/${out.row.name}: ${String(err.message || err).slice(0, 200)}`));
         }
         return undefined;
+    }));
+
+    // ── Publish on OpenVibe.Space (plan §AD.10 step 2; server/space-publish.js) ──────────────────────────
+    // The owner (signed in, or a service such as Space acting for them with X-OV-Subject): a site, a branch and a
+    // folder; every push to that branch deploys the folder there. Reading needs git.repo.read, changing git.repo.write.
+    const publishCaller = async (req, res, write) => {
+        const caller = await callerFor(req);
+        const found = await visible(req, req.params.owner, req.params.name);
+        if (!found) { problem(req, res, 404, 'repo.not_found', 'No such repository.'); return null; }
+        if (!caller) { problem(req, res, 401, 'auth.required', 'Sign in or present a token with git.repo.read.'); return null; }
+        if (write && !caller.scopes.has('git.repo.write')) { problem(req, res, 403, 'token.scope', 'This token may only read (git.repo.read).'); return null; }
+        const who = actingAs(caller);
+        if (!repos.isOwner(found.row, who)) { problem(req, res, 403, 'repo.forbidden', 'Only the repository\'s owner chooses where it is published.'); return null; }
+        if (!ctx.spacePublish) { problem(req, res, 503, 'publish.off', 'Publishing on OpenVibe.Space is not set up on this server.'); return null; }
+        return { found, who };
+    };
+    r.get('/repos/:owner/:name/space-publish', h(async (req, res) => {
+        const ok = await publishCaller(req, res, false); if (!ok) return undefined;
+        return res.json({ publish: await ctx.spacePublish.get(ok.found.row) });
+    }));
+    r.put('/repos/:owner/:name/space-publish', h(async (req, res) => {
+        const ok = await publishCaller(req, res, true); if (!ok) return undefined;
+        try {
+            const publish = await ctx.spacePublish.put(ok.found.row, ok.who, req.body || {});
+            await repos.audit(ok.who, 'git.space_publish.set', ok.found.row, { site_id: publish.site_id, branch: publish.branch, folder: publish.folder }, req.ip);
+            ctx.spacePublish.afterPush(ok.found.row, {});   // the branch as it is now
+            return res.json({ publish });
+        } catch (err) { return fail(req, res, err); }
+    }));
+    r.delete('/repos/:owner/:name/space-publish', h(async (req, res) => {
+        const ok = await publishCaller(req, res, true); if (!ok) return undefined;
+        await ctx.spacePublish.remove(ok.found.row);
+        await repos.audit(ok.who, 'git.space_publish.remove', ok.found.row, {}, req.ip);
+        return res.status(204).end();
+    }));
+    r.post('/repos/:owner/:name/space-publish/deploy', h(async (req, res) => {
+        const ok = await publishCaller(req, res, true); if (!ok) return undefined;
+        try { return res.json({ publish: await ctx.spacePublish.runNow(ok.found.row) }); } catch (err) { return fail(req, res, err); }
     }));
 
     r.use((req, res) => problem(req, res, 404, 'route.not_found', 'No such API route.'));
