@@ -262,7 +262,27 @@ ${repoHead({ row, viewer, starred, watching, forkOf })}
 </div></div>`;
 }
 
-function repoPage({ row, viewer, starred, watching, forkOf, tree, readme, card, languages, isOwner = false, machines = null, cloneRequest = null }) {
+/** Plan §AD.10 step 2: where the owner publishes this repository on OpenVibe.Space, its last send and Deploy now;
+ *  unpublished, how to start (a site on OpenVibe.Space, or asking their Actor). */
+function websiteBlock(row, w, base) {
+    if (!w) {
+        return `<div class="git-about git-owner-tools"><h2>Website</h2>
+      <p class="git-gh-cache">Put this repository on the web: every push to a branch updates the site, as a preview you make live.</p>
+      <a class="ovk-btn ovk-btn--ghost ovk-btn--small" href="https://openvibe.space/dashboard" rel="noopener">${icon('globe')} Host it on OpenVibe.Space</a>
+      <p class="git-gh-cache">Or ask your Actor: “put ${esc(row.owner_username)}/${esc(row.name)} on the web”.</p>
+    </div>`;
+    }
+    const last = w.last;
+    const said = last ? (last.state === 'deployed' ? `Sent ${esc(String(last.sha || '').slice(0, 7))} ${esc(ago(last.at))}.` : last.state === 'failed' ? `Not sent: ${esc(last.detail || 'it failed')}` : esc(last.detail || last.state)) : 'Nothing sent yet: the next push sends it.';
+    return `<div class="git-about git-owner-tools"><h2>Website</h2>
+      <p>${icon('globe')} On OpenVibe.Space from <b>${esc(w.branch)}</b>${w.folder ? `, its <code>${esc(w.folder)}/</code> folder` : ''}.</p>
+      <p class="git-gh-cache">${said}</p>
+      <form method="post" action="${base}/space-publish/deploy" class="git-inline"><button class="ovk-btn ovk-btn--ghost ovk-btn--small" type="submit">${icon('upload')} Deploy now</button></form>
+      <a class="git-about-link" href="https://openvibe.space/sites/${encodeURIComponent(w.site_id)}" rel="noopener">${icon('open')} Its page on OpenVibe.Space</a>
+    </div>`;
+}
+
+function repoPage({ row, viewer, starred, watching, forkOf, tree, readme, card, languages, isOwner = false, machines = null, cloneRequest = null, website = null, websiteOn = false }) {
     const base = `/${row.owner_username}/${row.name}`;
     const crumbs = [{ name: row.name, path: '' }, ...String(tree.path || '').split('/').filter(Boolean).map((seg, i, all) => ({ name: seg, path: all.slice(0, i + 1).join('/') }))];
     return `<div class="git-repo">
@@ -287,6 +307,7 @@ ${repoHead({ row, viewer, starred, watching, forkOf, machines, cloneRequest })}
       </ul>
       <a class="git-about-link" href="${base}/insights">${icon('chart')} Insights</a>
     </div>
+    ${isOwner && websiteOn ? websiteBlock(row, website, base) : ''}
     ${isOwner ? `<div class="git-about git-owner-tools"><h2>Mirror</h2>
       ${row.mirror_url ? `<p class="git-gh-cache">From GitHub, synced ${esc(ago(row.mirror_last_synced_at))}.</p><form method="post" action="${base}/sync" class="git-inline"><button class="ovk-btn ovk-btn--ghost ovk-btn--small" type="submit">${icon('retry')} Sync now</button></form>` : '<p class="git-gh-cache">Push every push back to GitHub. Use a token for the twin repository.</p>'}
       <details class="git-fold"><summary class="ovk-btn ovk-btn--ghost ovk-btn--small">${icon('upload')} Push mirror</summary>
