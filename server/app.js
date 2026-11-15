@@ -59,14 +59,16 @@ function createApp(opts = {}) {
         const github = opts.github || createGithubClient({ config, fetchImpl, now: s.now, log, lookup: opts.lookup, guard: opts.guard });
         const insights = opts.insights || createInsights({ store: s, log });
         const repos = opts.repos || createRepos({ store: s, config, git, github, insights, log });
-        const mirrors = opts.mirrors || createMirrors({ store: s, repos, config, git, github, log });
+        // GitHub, linked once (plan §AD.10 step 3): a person's token for push mirrors that have none of their own.
+        const githubLinks = opts.githubLinks || require('./github-links').createGithubLinks({ store: s, config, fetchImpl });
+        const mirrors = opts.mirrors || createMirrors({ store: s, repos, config, git, github, githubLinks, log });
         const official = opts.official || createOfficialMirrors({ store: s, repos, config, github, log });
         const sso = opts.sso || createSsoClient({
             site: 'git', baseUrl: config.baseUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret,
             networkUrl: config.networkUrl, networkInternalUrl: config.networkInternalUrl,
             secureCookies: config.cookies.secure, fetch: fetchImpl, log,
         });
-        const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, sso, log };
+        const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, sso, githubLinks, log };
         ctx.checks = createChecks({ store: s, log });
         ctx.ci = opts.ci || createCi({ config, store: s, checks: ctx.checks, git, github, repos, log });
         // Publish on OpenVibe.Space (plan §AD.10 step 2): a pushed branch's folder deployed to its owner's site.

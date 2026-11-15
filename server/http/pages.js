@@ -243,6 +243,28 @@ function createPageRoutes(ctx) {
     }));
 
     // ── A repository ────────────────────────────────────────
+    // ── GitHub, linked once (plan §AD.10 step 3) ─────────────
+    r.get('/settings/github', h(async (req, res) => {
+        if (!signedIn(req)) return res.redirect(303, loginTo('/settings/github'));
+        const me = viewer(req);
+        const linked = ctx.githubLinks ? await ctx.githubLinks.get(me.subject) : null;
+        return page(req, res, require('../views/github-link').page({ linked, ok: String(req.query.ok || '').slice(0, 80), error: String(req.query.error || '').slice(0, 200) }), { title: 'GitHub', index: false });
+    }));
+    r.post('/settings/github', h(async (req, res) => {
+        if (!guard(req, res)) return undefined;
+        try {
+            const out = await ctx.githubLinks.link(viewer(req).subject, req.body && req.body.token);
+            return res.redirect(303, `/settings/github?ok=${encodeURIComponent(`Linked to @${out.login}`)}`);
+        } catch (err) {
+            return res.redirect(303, `/settings/github?error=${encodeURIComponent(String((err && err.status && err.message) || 'The token was not saved').slice(0, 180))}`);
+        }
+    }));
+    r.post('/settings/github/unlink', h(async (req, res) => {
+        if (!guard(req, res)) return undefined;
+        const gone = await ctx.githubLinks.unlink(viewer(req).subject);
+        return res.redirect(303, `/settings/github?${gone ? 'ok=Unlinked' : 'error=Nothing%20was%20linked'}`);
+    }));
+
     r.get('/:owner/:name', h(async (req, res) => {
         const row = await rowFor(req, res);
         if (!row) return undefined;
