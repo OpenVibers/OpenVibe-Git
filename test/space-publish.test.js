@@ -107,6 +107,16 @@ const settle = async (t, check) => { for (let i = 0; i < 100; i++) { if (await c
         st = (await t.get('/api/v1/repos/ada/band/space-publish', { bearer: service, headers: { 'x-ov-subject': ada.subject } })).json().publish.last;
         assert.deepEqual([st.state, st.detail], ['failed', 'There is no folder "dist" at this commit.']);
 
+        // The repository page: the owner sees where it is published and can send it now; nobody else sees it.
+        const adaPage = await t.get('/ada/band', { cookie: t.signIn(ada) });
+        assert.equal(adaPage.status, 200, adaPage.text.slice(0, 200));
+        assert.match(adaPage.text, /<h2>Website<\/h2>/);
+        assert.match(adaPage.text, /On OpenVibe\.Space from <b>main<\/b>, its <code>dist\/<\/code> folder/);
+        assert.match(adaPage.text, /action="\/ada\/band\/space-publish\/deploy"/);
+        assert.match(adaPage.text, new RegExp(`openvibe\\.space/sites/${SITE}`));
+        // (bob cannot even see ada's private repository)
+        assert.equal((await t.get('/ada/band', { cookie: t.signIn(bob) })).status, 404);
+
         // Ada's own token works; removing it stops publishing.
         assert.equal((await t.get('/api/v1/repos/ada/band/space-publish', { bearer: adaToken })).status, 200);
         assert.equal((await t.get('/api/v1/repos/ada/band/space-publish', { method: 'DELETE', bearer: service, headers: { 'x-ov-subject': ada.subject } })).status, 204);
@@ -114,6 +124,8 @@ const settle = async (t, check) => { for (let i = 0; i < 100; i++) { if (await c
         await commit('main', [{ path: 'site/index.html', content: '<h1>after</h1>' }]);
         await new Promise((r) => setTimeout(r, 400));
         assert.equal(deploys.length, before, 'removed: nothing is sent');
+        const unpublished = await t.get('/ada/band', { cookie: t.signIn(ada) });
+        assert.match(unpublished.text, /Host it on OpenVibe\.Space/, 'unpublished: how to start');
         console.log('space-publish: the owner chooses a site, branch and folder; each push to it sends the folder as them; plain words when it fails');
     } finally { await t.close(); }
 })().catch((e) => { console.error(e); process.exit(1); });

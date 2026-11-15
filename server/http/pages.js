@@ -76,7 +76,9 @@ function createPageRoutes(ctx) {
         ]);
         const start = { starred, watching, forkOf: parent ? `${parent.owner_username}/${parent.name}` : null, isOwner: repos.isOwner(row, me) };
         const card = row.github_full_name ? await github.card(row.github_full_name, { branch: row.default_branch }) : null;
-        return { ...start, card, languages: row.languages, machines };
+        // Plan §AD.10 step 2: where the owner publishes this repository on OpenVibe.Space (their side panel only).
+        const website = start.isOwner && ctx.spacePublish ? await ctx.spacePublish.get(row).catch(() => null) : null;
+        return { ...start, card, languages: row.languages, machines, website, websiteOn: Boolean(ctx.spacePublish && ctx.spacePublish.enabled) };
     }
 
     async function readReadme(row, ref) {
@@ -445,6 +447,18 @@ function createPageRoutes(ctx) {
         if (!row) return undefined;
         if (!repos.isOwner(row, viewer(req))) return res.status(403).type('text/plain').send('Only the owner can sync a mirror.');
         if (row.mirror_url) mirrors.syncRow(row).catch(() => {});
+        return res.redirect(303, `/${row.owner_username}/${row.name}`);
+    }));
+
+    // Plan §AD.10 step 2: send the published branch to OpenVibe.Space now (the owner, from the side panel).
+    r.post('/:owner/:name/space-publish/deploy', h(async (req, res) => {
+        if (!guard(req, res)) return undefined;
+        const row = await rowFor(req, res);
+        if (!row) return undefined;
+        if (!repos.isOwner(row, viewer(req)) || !ctx.spacePublish) return res.status(403).type('text/plain').send('Only the owner sends it.');
+        try { await ctx.spacePublish.runNow(row); } catch (err) {
+            return page(req, res, views.message({ title: 'It was not sent', text: err.message, link: { href: `/${row.owner_username}/${row.name}`, label: 'Back to the repository' } }), { status: err.status || 400 });
+        }
         return res.redirect(303, `/${row.owner_username}/${row.name}`);
     }));
 
