@@ -145,7 +145,9 @@ function createApp(opts = {}) {
         app.use(sso.optionalAuth());
 
         // ── Sign-in ─────────────────────────────────────────────
-        app.use('/auth/', rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: true, legacyHeaders: false }));
+        // /auth/me is the navbar's who-is-signed-in read on every page: not counted with sign-ins (60 in 15 minutes made a
+        // visitor who browsed 60 pages look signed out; open.shoes in the browser check, 11-15).
+        app.use('/auth/', rateLimit({ windowMs: 15 * 60_000, limit: 60, skip: (req) => req.path === '/me', standardHeaders: true, legacyHeaders: false }));
         app.use('/auth', sso.router(express));
         {
             const legal = require('openvibe-shared/legal');
