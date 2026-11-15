@@ -63,7 +63,7 @@ function cgiHeaders(text) {
     return { status, headers, bodyAt: idx + sep };
 }
 
-function createSmartHttp({ config, repos, mirrors, insights, ci = null, log = console }) {
+function createSmartHttp({ config, repos, mirrors, insights, ci = null, spacePublish = null, log = console }) {
     const mayRead = (row, identity) => {
         if (row.visibility === 'public') return true;
         if (!identity) return false;
@@ -148,6 +148,11 @@ function createSmartHttp({ config, repos, mirrors, insights, ci = null, log = co
             await mirrors.afterPush(row);
             // A branch push that landed here (the estate's own tools) can queue a forge run; a person's forge
             // account is not a GitHub login, so only the network's service tokens count (server/ci.js).
+            if (spacePublish) {
+                for (const change of parsePushCommands(body)) {
+                    if (change.ref.startsWith('refs/heads/') && !/^0+$/.test(change.new)) spacePublish.afterPush(row, { ref: change.ref });
+                }
+            }
             if (ci) {
                 for (const change of parsePushCommands(body)) {
                     if (!change.ref.startsWith('refs/heads/') || /^0+$/.test(change.new)) continue;

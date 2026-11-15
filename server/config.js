@@ -82,6 +82,15 @@ function load(env = process.env) {
             runnerTokenFile: env.GIT_CI_RUNNER_TOKEN_FILE || path.join(__dirname, '..', 'deploy', 'ci', 'runner-token'),
         },
 
+        // Publishing on OpenVibe.Space (server/space-publish.js): Space's own address on this host, the largest folder
+        // archive Git sends, and how long one deploy may take.
+        space: {
+            enabled: bool(env.GIT_SPACE_PUBLISH_ENABLED, true),
+            internalUrl: trim(env.GIT_SPACE_INTERNAL_URL || (isProduction ? 'http://127.0.0.1:4940' : '')),
+            maxBytes: Math.max(1024 * 1024, int(env.GIT_SPACE_MAX_BYTES, 64 * 1024 * 1024)),
+            timeoutMs: Math.max(10_000, int(env.GIT_SPACE_TIMEOUT_MS, 120_000)),
+        },
+
         // Clone tokens (opaque, hashed at rest) and the key that seals a stored push-mirror token.
         tokens: {
             ttlHours: Math.max(1, Math.min(24 * 30, int(env.GIT_TOKEN_TTL_HOURS, 1))),

@@ -43,6 +43,7 @@ const { createReviewServices } = require('./review-services');
 const { createLinkRelay } = require('./link-relay');
 const { createLinkRoutes } = require('./http/link');
 const { createNpmRegistry } = require('./npm-registry');
+const { createSpacePublish } = require('./space-publish');
 const { setRelease } = require('./render/layout');
 
 const VERSION = require('../package.json').version;
@@ -68,7 +69,9 @@ function createApp(opts = {}) {
         const ctx = { config, store: s, s, git, github, insights, repos, mirrors, official, sso, log };
         ctx.checks = createChecks({ store: s, log });
         ctx.ci = opts.ci || createCi({ config, store: s, checks: ctx.checks, git, github, repos, log });
-        ctx.smartHttp = opts.smartHttp || createSmartHttp({ config, repos, mirrors, insights, ci: ctx.ci, log });
+        // Publish on OpenVibe.Space (plan §AD.10 step 2): a pushed branch's folder deployed to its owner's site.
+        ctx.spacePublish = opts.spacePublish !== undefined ? opts.spacePublish : createSpacePublish({ config, store: s, git, fetchImpl, log });
+        ctx.smartHttp = opts.smartHttp || createSmartHttp({ config, repos, mirrors, insights, ci: ctx.ci, spacePublish: ctx.spacePublish, log });
         ctx.ciAuth = opts.ciAuth || createCiAuth({ config, log });
         ctx.archive = createArchive({ config, git });
         ctx.checksIntake = opts.checksIntake || createChecksIntake({ store: s, checks: ctx.checks, config, git, github, log });
