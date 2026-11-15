@@ -13,7 +13,7 @@
  */
 const { assertPublicUrl } = require('openvibe-shared/egress');
 
-function createMirrors({ store, repos, config, git, github, log = console }) {
+function createMirrors({ store, repos, config, git, github, githubLinks = null, log = console }) {
     const running = new Map();   // repo id → promise
 
     async function guardUrl(url) {
@@ -97,7 +97,10 @@ function createMirrors({ store, repos, config, git, github, log = console }) {
         await store.execute('UPDATE git_repos SET pushed_at = now(), updated_at = now() WHERE id = ?', [row.id]);
         await repos.refreshLanguages(row);
         if (!row.push_mirror_url) return;
-        const token = repos.pushTokenFor(row) || (row.official ? config.github.pushToken : '');
+        // The repository's own token, else its owner's linked GitHub token (plan §AD.10 step 3), else OpenVibers' for an
+        // official mirror.
+        const linked = !repos.pushTokenFor(row) && githubLinks && row.owner_subject ? await githubLinks.tokenFor(row.owner_subject).catch(() => '') : '';
+        const token = repos.pushTokenFor(row) || linked || (row.official ? config.github.pushToken : '');
         if (!token) {
             await store.execute("UPDATE git_repos SET push_mirror_state = 'error' WHERE id = ?", [row.id]);
             return;

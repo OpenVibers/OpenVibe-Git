@@ -316,6 +316,7 @@ ${repoHead({ row, viewer, starred, watching, forkOf, machines, cloneRequest })}
           <label>Token <input name="push_token" type="password" placeholder="${row.push_mirror_token ? 'a token is stored' : 'a token with repo scope'}" autocomplete="off"></label>
           <button class="ovk-btn ovk-btn--primary ovk-btn--small" type="submit">Save</button>
           ${row.push_mirror_url ? '<p class="git-gh-cache">Save an empty URL to turn it off.</p>' : ''}
+          <p class="git-gh-cache">No token here? Your <a href="/settings/github">linked GitHub token</a> is used.</p>
         </form>
       </details>
     </div>` : ''}
