@@ -1,7 +1,9 @@
 'use strict';
 
 /** Page helpers: escape everything dynamic, and the small formatting functions the views share. */
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// The shared core (escaping, the html`` template) is openvibe-sdk/html's, the one implementation every site uses
+// (the consolidation of 2026-11-16); the rest of this file is this site's own.
+const { esc } = require('openvibe-sdk/html');
 
 function bytes(n) {
     const v = Number(n) || 0;
