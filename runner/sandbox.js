@@ -53,6 +53,10 @@ function detectEngine(preferred = 'auto') {
     throw new Error('no sandbox engine: rootless podman or bubblewrap is required');
 }
 
+// The test phase has no network at all; it says so (OV_SANDBOX_OFFLINE=1), so a test that needs the network (Shared's
+// pin-drift reads GitHub's tags) can check what it still can offline instead of failing the run. GitHub Actions has the
+// network and runs the whole check.
+const phaseEnv = (proxySock) => (proxySock ? {} : { OV_SANDBOX_OFFLINE: '1' });
 const envList = (extra = {}) => ({
     HOME: '/workspace/.home',
     TMPDIR: '/tmp',
@@ -103,7 +107,7 @@ function podmanArgs({ name, workspace, image, limits, proxySock = null, script }
         '-v', `${workspace}:/workspace:rw`,
         '--stop-timeout', '5',
     ];
-    for (const [key, value] of Object.entries(envList())) args.push('-e', `${key}=${value}`);
+    for (const [key, value] of Object.entries(envList(phaseEnv(proxySock)))) args.push('-e', `${key}=${value}`);
     if (proxySock) args.push('-v', `${proxySock}:/run/ci-proxy.sock:rw`);
     args.push(image, '/bin/sh', '-c', script);
     return args;
@@ -144,7 +148,7 @@ function bwrapArgs({ workspace, limits, proxySock = null, script }) {
         '--disable-userns', '--die-with-parent', '--new-session', '--cap-drop', 'ALL', '--clearenv',
         '--uid', String(UID), '--gid', String(GID), '--hostname', 'ci',
     ];
-    for (const [key, value] of Object.entries({ ...envList(), PATH: `${nodeBin}:/usr/local/bin:/usr/bin:/bin` })) {
+    for (const [key, value] of Object.entries({ ...envList(phaseEnv(proxySock)), PATH: `${nodeBin}:/usr/local/bin:/usr/bin:/bin` })) {
         args.push('--setenv', key, value);
     }
     args.push('--ro-bind', '/usr', '/usr');
