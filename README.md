@@ -128,3 +128,9 @@ The routes are `POST /api/v1/clone-requests`, `GET /api/v1/clone-requests/:id`,
 `POST /api/v1/repos/:owner/:name/clone-to-machine` and `GET …/clone-to-machine/:id`, `POST|GET /api/v1/machines`, and
 the Link's own `/api/v1/link/clone-requests/:id`, `/api/v1/link/machines/:id/{hello,watch,results}` and
 `POST /api/v1/link/machines/:id/clone-requests/:clr`. Tests: `test/link-relay.test.js`, `test/clone-to-machine.test.js`.
+
+<!-- versions:start -->
+- openvibe-contracts: v0.443.0
+- openvibe-sdk: v0.177.0
+- openvibe-shared: v4.290.0
+<!-- versions:end -->
