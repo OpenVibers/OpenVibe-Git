@@ -13,7 +13,7 @@
  *     "githubStatus": true,                     // also post the verdict to the GitHub pull request (via gh)
  *     "githubContext": "forge/test",
  *     "pollMs": 5000,
- *     "proxyAllow": ["registry.npmjs.org", "codeload.github.com"],
+ *     "proxyAllow": ["registry.npmjs.org", "codeload.github.com", "git.openvibe.codes"],
  *     "repos": {
  *       "openvibers/openvibe.shared": {
  *         "install_command": "npm ci --no-audit --no-fund",
@@ -72,7 +72,7 @@ function loadConfig(env = process.env) {
         heartbeatMs: int(raw.heartbeatMs, 15_000, 2000, 60_000),
         proxyAllow: Array.isArray(raw.proxyAllow) && raw.proxyAllow.length
             ? raw.proxyAllow.map((h) => String(h).toLowerCase()).filter(Boolean)
-            : ['registry.npmjs.org', 'codeload.github.com'],
+            : ['registry.npmjs.org', 'codeload.github.com', 'git.openvibe.codes'],
         repos: raw.repos && typeof raw.repos === 'object' ? raw.repos : {},
     };
     cfg.repos = Object.fromEntries(Object.entries(cfg.repos).map(([full, item]) => [
