@@ -112,6 +112,8 @@ const { hashToken, parseHash, createCiAuth } = require('../server/ci-auth');
         });
         assert.ok(!testPhase.some((a) => a.includes('proxy.sock')), 'the test phase mounts no proxy');
         assert.ok(testPhase.includes('--network=none'));
+        assert.ok(testPhase.includes('OV_SANDBOX_OFFLINE=1'), 'the test phase says it has no network');
+        assert.ok(!install.includes('OV_SANDBOX_OFFLINE=1'), 'the install phase has its proxy, so it does not');
 
         // The wall clock kills a process that would otherwise run forever.
         const started = Date.now();
