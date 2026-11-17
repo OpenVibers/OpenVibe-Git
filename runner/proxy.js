@@ -45,7 +45,7 @@ async function resolvePublic(host) {
     return answers[0];
 }
 
-function createProxy({ allow = ['registry.npmjs.org', 'codeload.github.com'], log = console } = {}) {
+function createProxy({ allow = ['registry.npmjs.org', 'codeload.github.com', 'git.openvibe.codes'], log = console } = {}) {
     const allowed = new Set(allow.map((h) => String(h).toLowerCase()));
     const sockets = new Set();
     let server = null;
