@@ -8,9 +8,11 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/var/lib/ovci/runner
 Environment=NODE_ENV=production
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# The official Node build (node-setup.sh), the one GitHub's runners use: the sandbox runs this same Node (the runner
+# shows its own installation at /opt/node). Ubuntu's packaged Node lacks TypeScript stripping, which tests use.
+Environment=PATH=/opt/openvibe-node/current/bin:/usr/local/bin:/usr/bin:/bin
 Environment=GIT_CI_CONFIG=/var/lib/ovci/.config/openvibe/git-ci.json
-ExecStart=/usr/bin/node /var/lib/ovci/runner/runner/index.js
+ExecStart=/opt/openvibe-node/current/bin/node /var/lib/ovci/runner/runner/index.js
 Restart=always
 RestartSec=10
 KillMode=control-group
