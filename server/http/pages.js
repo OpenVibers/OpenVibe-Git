@@ -319,10 +319,13 @@ function createPageRoutes(ctx) {
         const ref = String(req.query.ref || row.default_branch || 'main');
         const pathAt = String(req.query.path || '');
         if (!validRef(ref) || !validPath(pathAt)) return page(req, res, views.message({ title: 'Not a ref or path', text: 'That ref or path is not something this server reads.', link: { href: `/${row.owner_username}/${row.name}`, label: 'Back to the repository' } }), { status: 422 });
-        await insights.recordView(row, { address: req.ip || '', userAgent: String(req.get('user-agent') || ''), subject: signedIn(req) ? viewer(req).subject : null });
-        const tree = await git.readTree(row.owner_username, row.name, ref, pathAt);
+        // The view, the tree and the repository's context together (they were read one after another).
+        const [, tree, context] = await Promise.all([
+            insights.recordView(row, { address: req.ip || '', userAgent: String(req.get('user-agent') || ''), subject: signedIn(req) ? viewer(req).subject : null }),
+            git.readTree(row.owner_username, row.name, ref, pathAt),
+            repoContext(req, row),
+        ]);
         if (!tree) return page(req, res, views.notFound(), { status: 404, title: 'Not found' });
-        const context = await repoContext(req, row);
         return page(req, res, views.treePage({ row, viewer: viewer(req), tree, ...context }), meta(req, row, { title: `${pathAt || row.name} at ${ref}` }));
     }));
 

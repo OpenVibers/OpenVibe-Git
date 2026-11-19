@@ -16,7 +16,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { runGit, runText, configEnv } = require('./run');
+const { runGit, runText, configEnv, spawnGit } = require('./run');
 const { validRef, validPath, checkRefWithGit } = require('./refs');
 const { createCatFilePool } = require('./cat-file');
 const { REPOS_DIR, HOOKS_DIR, TMP_DIR } = require('../paths');
@@ -109,13 +109,70 @@ function parseLsTree(text) {
     return out;
 }
 
-async function lastCommitFor(dir, filePath) {
-    try {
-        const out = await runText(['log', '-1', '--format=%H%x00%s%x00%cI%x00%an', '--', filePath], { cwd: dir, maxBuffer: 64 * 1024 });
-        const [sha, message, date, author] = out.trim().split('\x00');
-        if (!sha) return null;
-        return { sha, message: message || '', date, author_name: author || '' };
-    } catch { return null; }
+/**
+ * The last commit that touched each entry of a directory at a commit, from one history walk: `git log <sha> -- <dir>`
+ * newest first with the paths each commit changed; the first commit naming an entry is its last one, and the walk
+ * stops as soon as every entry has one. Was one `git log -1` per entry, one after another, and without the ref (so a
+ * branch's tree showed the default branch's history): git.openvibe.codes tree pages took 0.86 s on average and 4.7 s
+ * at p95 (2026-11-19). A commit's tree never changes, so the answer is kept by commit and directory.
+ */
+const LAST_COMMITS_MAX = 2000;
+const lastCommitsKept = new Map();
+async function lastCommitsFor(dir, sha, dirPath, names, { timeoutMs = 15_000 } = {}) {
+    const key = `${dir}\0${sha}\0${dirPath}`;
+    const kept = lastCommitsKept.get(key);
+    if (kept && names.every((n) => kept.has(n))) return kept;
+    const found = await walkLastCommits(dir, sha, dirPath, names, timeoutMs);
+    if (found.size === new Set(names).size) {   // only a complete answer is kept: a timed-out walk is asked again
+        if (lastCommitsKept.size >= LAST_COMMITS_MAX) lastCommitsKept.delete(lastCommitsKept.keys().next().value);
+        lastCommitsKept.set(key, found);
+    }
+    return found;
+}
+function walkLastCommits(dir, sha, dirPath, names, timeoutMs) {
+    const want = new Set(names);
+    const found = new Map();
+    if (!want.size) return Promise.resolve(found);
+    const prefix = dirPath ? `${dirPath}/` : '';
+    const args = ['log', '--format=%x1e%H%x00%s%x00%cI%x00%an', '--name-only', '-z', '--no-renames', sha, '--'];
+    if (dirPath) args.push(dirPath);
+    return new Promise((resolve) => {
+        let child;
+        try { child = spawnGit(args, { cwd: dir, timeoutMs }); } catch { resolve(found); return; }
+        let buf = '';
+        let done = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            try { child.kill('SIGKILL'); } catch { /* already gone */ }
+            resolve(found);
+        };
+        const take = (record) => {
+            const parts = record.split('\0');
+            const [commit, message, date, author] = parts;
+            if (!/^[0-9a-f]{40,64}$/.test(commit || '')) return;
+            const last = { sha: commit, message: message || '', date, author_name: author || '' };
+            for (let i = 4; i < parts.length; i += 1) {
+                const file = parts[i].replace(/^\n/, '');
+                if (!file || !file.startsWith(prefix)) continue;
+                const entry = file.slice(prefix.length).split('/')[0];
+                if (want.has(entry) && !found.has(entry)) found.set(entry, last);
+            }
+        };
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (chunk) => {
+            buf += chunk;
+            let end;
+            while ((end = buf.indexOf('\x1e', 1)) > 0) {
+                take(buf.slice(1, end));
+                buf = buf.slice(end);
+                if (found.size >= want.size) return finish();
+            }
+        });
+        child.stdout.on('error', finish);
+        child.on('error', finish);
+        child.on('close', () => { if (buf.startsWith('\x1e')) take(buf.slice(1)); finish(); });
+    });
 }
 
 /** One directory at a ref: entries with mode, size and the last commit that touched each. */
@@ -124,19 +181,21 @@ async function readTree(owner, name, ref, dirPath = '', { withLastCommit = true,
     const sha = await resolveCommit(owner, name, ref);
     if (!sha) return null;
     const dir = repoDir(owner, name);
-    const args = ['ls-tree', '-z', '-l', sha];
-    if (dirPath) args.push('--', dirPath);
-    const out = await runText(args, { cwd: dir, maxBuffer: 8 * 1024 * 1024 });
+    // `<commit>:<dir>` lists the directory's children by their own names. `<commit> -- <dir>` (until 2026-11-19) listed
+    // the directory itself, so every subfolder on git.openvibe.codes showed one row: the folder, at "dir/dir".
+    let out;
+    try {
+        out = await runText(['ls-tree', '-z', '-l', dirPath ? `${sha}:${dirPath}` : sha], { cwd: dir, maxBuffer: 8 * 1024 * 1024 });
+    } catch (err) {
+        if (err && err.code === 128) return null;   // no such directory at this ref, or a file
+        throw err;
+    }
     const entries = parseLsTree(out);
     const shown = entries.slice(0, limit);
+    for (const e of shown) e.path = dirPath ? `${dirPath}/${e.name}` : e.name;
     if (withLastCommit) {
-        for (const e of shown) {
-            const child = dirPath ? `${dirPath}/${e.name}` : e.name;
-            e.path = child;
-            e.last_commit = await lastCommitFor(dir, child);
-        }
-    } else {
-        for (const e of shown) e.path = dirPath ? `${dirPath}/${e.name}` : e.name;
+        const last = await lastCommitsFor(dir, sha, dirPath, shown.map((e) => e.name)).catch(() => new Map());
+        for (const e of shown) e.last_commit = last.get(e.name) || null;
     }
     return { ref, path: dirPath, commit: sha, entries: shown, truncated: entries.length > shown.length };
 }
