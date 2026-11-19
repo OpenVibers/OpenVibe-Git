@@ -154,6 +154,19 @@ const LISTING = {
         assert.equal((await t.ctx.github.meta('Solo/solo-site')).default_branch, 'main');
         assert.equal(calls.length, before, 'the listing fills the metadata cache: no call per repository');
 
-        console.log('official: 34 checks passed');
+        // GitHub's signed push for an official repository the forge has no mirror of yet (the listing is refused most
+        // of the time and the contracts lag behind new services): adopted once; another owner or a private one is not.
+        t.config.official.org = 'OpenVibers';
+        const finance = { name: 'OpenVibe.Finance', full_name: 'OpenVibers/OpenVibe.Finance', fork: false, archived: false, private: false, clone_url: 'https://github.com/OpenVibers/OpenVibe.Finance.git', owner: { login: 'OpenVibers' } };
+        const adopted = await job.adoptFromWebhook(finance);
+        assert.equal(adopted.created, true, JSON.stringify(adopted));
+        assert.ok(clones.includes('openvibers/openvibe.finance'), 'the new repository was cloned');
+        assert.ok(probes.includes('/OpenVibers/OpenVibe.Finance.git/git-upload-pack'), 'checked public through git, not REST');
+        assert.equal((await job.adoptFromWebhook(finance)).existing, true, 'adopted once');
+        assert.equal((await job.adoptFromWebhook({ ...finance, full_name: 'Someone/OpenVibe.Finance', owner: { login: 'Someone' } })).skipped, 'not-the-organisation');
+        assert.equal((await job.adoptFromWebhook({ ...finance, name: 'Secret', full_name: 'OpenVibers/Secret', private: true })).skipped, 'private');
+        assert.equal((await job.adoptFromWebhook({ ...finance, name: 'Fork', full_name: 'OpenVibers/Fork', fork: true })).skipped, 'fork');
+
+        console.log('official: 40 checks passed');
     } finally { await t.close(); }
 })().catch((err) => { console.error(err); process.exit(1); });

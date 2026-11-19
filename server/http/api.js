@@ -448,6 +448,12 @@ function createApi(ctx) {
         if (!Buffer.isBuffer(req.body)) return problem(req, res, 415, 'webhook.raw_required', 'The webhook body is read raw.');
         const out = await mirrors.handleWebhook(req.body, req.headers);
         res.status(out.status).json(out.body);
+        // A signed push to an official repository the forge has no mirror of yet: adopt it (server/official.js). Its
+        // next push then reaches the mirror and the CI like any other.
+        if (out.adoptable && ctx.official && ctx.official.adoptFromWebhook) {
+            ctx.official.adoptFromWebhook(out.adoptable)
+                .catch((err) => log.warn(`[OpenVibe.Git] adopt ${out.adoptable.full_name}: ${String(err.message || err).slice(0, 200)}`));
+        }
         // A push starts a forge run only after the mirror has the pushed commit; a pull request never does.
         // A deleted branch needs no sync first: its queued run stops at once.
         if (out.event === 'push' && out.row && out.payload && (out.sync || out.payload.deleted)) {

@@ -86,7 +86,12 @@ function createMirrors({ store, repos, config, git, github, githubLinks = null, 
         const full = payload && payload.repository && payload.repository.full_name;
         if (!full) return { status: 200, body: { ok: true, ignored: true } };
         const row = await store.maybe('SELECT * FROM git_repos WHERE lower(github_full_name) = lower(?)', [full]);
-        if (!row) return { status: 200, body: { ok: true, ignored: 'no mirror' } };
+        if (!row) {
+            // A push or a new branch: the caller may adopt the repository as an official mirror (server/official.js).
+            const event = headers['x-github-event'];
+            const adoptable = ['push', 'create'].includes(event) ? payload.repository : null;
+            return { status: 200, body: { ok: true, ignored: 'no mirror' }, adoptable };
+        }
         // Acknowledge now, fetch after: GitHub's delivery does not wait on a large clone. The CI runner is told
         // after the fetch has brought the pushed commit in (the caller schedules it), never before.
         const sync = syncRow(row).catch(() => {});
