@@ -72,6 +72,9 @@ function loadConfig(env = process.env) {
         // The test phase's OV_TEST_TIMEOUT_SCALE (openvibe-shared/test-runner 4.323.0 and later): a runner slower or busier
         // than the machines a repository's per-file limits were set on stretches them (the shared node: 2).
         testTimeoutScale: Math.min(10, Math.max(1, Number(raw.testTimeoutScale) || 1)),
+        // GitHub's security workflow, in the run (runner/security.js): the secret scan and the dependency audit.
+        secretScan: raw.secretScan !== false,
+        audit: raw.audit !== false,
         // Host folders shown read-only in both phases (runner/sandbox.js safeRoBinds): the node shows /opt/google (Chrome).
         roBinds: Array.isArray(raw.roBinds) ? raw.roBinds.map(String).slice(0, 20) : [],
         // Installs kept between runs (runner/deps-cache.js) and the package managers' download caches. Both live on
@@ -99,6 +102,8 @@ function loadConfig(env = process.env) {
             image: String((item && item.image) || cfg.image),
             cpus: int(item && item.cpus, 4, 1, 8),
             memory_mb: int(item && item.memory_mb, 6144, 512, 12288),
+            // As security.yml's audit-fail-level: critical (default), high, or none (report only).
+            audit_fail_level: ['critical', 'high', 'none'].includes(item && item.audit_fail_level) ? item.audit_fail_level : 'critical',
         },
     ]));
     if (!cfg.token) throw new Error(`no runner token: write it to ${tokenFile} (0600) or set GIT_CI_RUNNER_TOKEN`);

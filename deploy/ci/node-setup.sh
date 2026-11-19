@@ -65,6 +65,18 @@ ln -sfn "$NODE_DIR" /opt/openvibe-node/current
 chown -R root:root /opt/openvibe-node
 export PATH="/opt/openvibe-node/current/bin:$PATH"
 
+# gitleaks for the run's secret scan (runner/security.js): the version and checksum openvibe-shared's security.yml pins.
+GITLEAKS_VERSION=${GITLEAKS_VERSION:-8.30.1}
+GITLEAKS_SHA256=${GITLEAKS_SHA256:-551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb}
+if ! /usr/local/bin/gitleaks version 2>/dev/null | grep -q "$GITLEAKS_VERSION"; then
+    TMP=$(mktemp -d)
+    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o "$TMP/g.tar.gz"
+    echo "$GITLEAKS_SHA256  $TMP/g.tar.gz" | sha256sum -c --quiet -
+    tar -xzf "$TMP/g.tar.gz" -C "$TMP" gitleaks
+    install -o root -g root -m 0755 "$TMP/gitleaks" /usr/local/bin/gitleaks
+    rm -rf "$TMP"
+fi
+
 # pnpm into /usr (bubblewrap binds the host's /usr read-only).
 if ! command -v pnpm >/dev/null 2>&1 || [ "$(pnpm --version 2>/dev/null)" != "$PNPM_VERSION" ]; then
     npm install -g --no-audit --no-fund "pnpm@$PNPM_VERSION" >/dev/null

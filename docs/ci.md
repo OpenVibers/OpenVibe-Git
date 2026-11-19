@@ -150,6 +150,13 @@ repositories) to `ov-node-01` (8 cores, 15 GB):
 - **The verdict** is the forge's `forge/test` status; the node has no GitHub login, so it does not post to GitHub
   (`"githubStatus": false`). The ship scripts read the forge's verdict directly.
 
+- **GitHub's security checks, in the run** (`runner/security.js`, 2026-11-19): a gitleaks scan of the pushed commit's
+  files (the repository's own `.gitleaks.toml` or `.github/gitleaks.toml`; no network) before the install, and
+  `npm audit` / `pnpm audit` for every lockfile through the install proxy after it, failing at the repository's
+  `audit_fail_level` (critical by default, as openvibe-shared's security.yml: high is reported, not enforced; or
+  `high`, or `none`). Findings fail the run after the tests have run, and the description names them. gitleaks is
+  the version and checksum security.yml pins, installed at /usr/local/bin by `node-setup.sh`.
+
 Each run's description says where the time went: `Forge runner passed in 2m 10s (install 3s from the cache, tests
 2m 4s)`.
 

@@ -13,7 +13,8 @@ const { createProxy } = require('./proxy');
 const { runProcess } = require('./process');
 const { podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, detectEngine, RELAY } = require('./sandbox');
 const { reportGithubStatus } = require('./github-status');
-const { createDepsCache, cacheKey, survey, installed, autoCommands } = require('./deps-cache');
+const { createDepsCache, cacheKey, survey, installed, autoCommands, lockfilesIn } = require('./deps-cache');
+const security = require('./security');
 
 
 
@@ -191,6 +192,22 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
                 }
             }
 
+            // GitHub's security workflow, here (runner/security.js): what they find fails the run, after the tests ran.
+            const problems = [];
+            if (!state && cfg.secretScan) {
+                const scan = await phase('secrets', installScript(security.secretScanScript(), { proxy: false }), null);
+                if (superseded) state = 'superseded';
+                else if (scan.code === 0) onData('secret scan: nothing found\n');
+                else if (scan.code === 1) {
+                    const found = security.readSecretFindings(runDir);
+                    if (found.length) {
+                        for (const f of found.slice(0, 20)) onData(`secret scan: ${f.rule} at ${f.file}:${f.line} (redacted)\n`);
+                        onData('A real secret: rotate it first, then remove it. A proven false positive: a narrow [[allowlists]] entry (path AND value) in .gitleaks.toml.\n');
+                        problems.push(`secret scan: ${found.length} finding${found.length === 1 ? '' : 's'}`);
+                    } else onData('secret scan: findings only in the runner\'s own folders, ignored\n');
+                } else if (scan.code === 3) { /* said so in its own output */ } else onData(`secret scan could not run (exit ${scan.code}); not counted\n`);
+            }
+
             let installMs = 0;
             let fromCache = false;
             if (!state) {
@@ -225,14 +242,37 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
                     }
                 }
             }
+            const repoConf = cfg.repos[String(job.repo.full_name || '').toLowerCase()] || {};
+            const auditLevel = repoConf.audit_fail_level || 'critical';
+            if (!state && cfg.audit && auditLevel !== 'none') {
+                const locks = lockfilesIn(runDir);
+                if (locks.length) {
+                    proxy = createProxy({ allow: cfg.proxyAllow, log: { warn: (line) => onData(`${line}\n`) } });
+                    const socket = path.join(runDir, '.ci', 'proxy.sock');
+                    await proxy.listen(socket);
+                    await phase('audit', installScript(security.auditScript(locks)), socket);
+                    await proxy.close().catch(() => {});
+                    proxy = null;
+                    if (superseded) state = 'superseded';
+                    const results = security.readAuditCounts(runDir, locks);
+                    for (const r of results) {
+                        onData(r.counts
+                            ? `audit ${r.lockfile}: ${security.LEVELS.map((l) => `${r.counts[l]} ${l}`).join(', ')}\n`
+                            : `audit ${r.lockfile}: no answer (the registry unreachable?); nothing was checked\n`);
+                    }
+                    const failing = security.auditFailures(results, auditLevel);
+                    if (failing.length) problems.push(`dependency audit (${auditLevel}): ${failing.join('; ')}`.slice(0, 300));
+                }
+            }
             if (!state) {
                 const t1 = clock();
                 const test = await phase('test', installScript(commands.test, { proxy: false }), null);
                 const timing = `install ${words(installMs)}${fromCache ? ' from the cache' : ''}, tests ${words(clock() - t1)}`;
                 if (superseded) state = 'superseded';
                 else if (test.timedOut) { state = 'timed_out'; description = `Timed out after ${words(totalMs)}`; }
-                else if (test.code === 0) { state = 'success'; description = `Forge runner passed in ${words(clock() - started)} (${timing})`; }
-                else { state = 'failure'; exitCode = test.code; description = `Forge runner failed (exit ${test.code}) in ${words(clock() - started)} (${timing})`; }
+                else if (test.code === 0 && !problems.length) { state = 'success'; description = `Forge runner passed in ${words(clock() - started)} (${timing})`; }
+                else if (test.code === 0) { state = 'failure'; exitCode = 1; description = `Forge runner failed: ${problems.join('; ')} (tests passed; ${timing})`; }
+                else { state = 'failure'; exitCode = test.code; description = `Forge runner failed (exit ${test.code}) in ${words(clock() - started)} (${timing})${problems.length ? `; also ${problems.join('; ')}` : ''}`; }
             }
         } catch (err) {
             if (superseded) state = 'superseded';
