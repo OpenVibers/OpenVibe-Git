@@ -48,6 +48,78 @@ function createOfficialMirrors({ store, repos, config, github, log = console, cl
     const enabled = () => Boolean(settings.org) && !config.drill;
     const listContracts = contractList || contractRepositories;
 
+    /**
+     * One repository of the organisation becomes an official mirror, unless it is a fork, archived, private, has a name
+     * this service cannot hold, or is already here. Used by the run over the whole list, and by GitHub's signed push
+     * webhook for a repository the forge does not have yet (2026-11-19): the host's unauthenticated GitHub quota refuses
+     * the listing most of the time and the contracts lag behind new services (Finance and Markets were missing), so a
+     * public OpenVibers repository now appears the first time GitHub tells the forge about a push to it.
+     * Returns { created } | { existing, row } | { skipped: 'fork'|'archived'|'private'|'missing'|'invalid' } | { failed }.
+     */
+    async function adopt(repo, { stoppedNow = () => false } = {}) {
+        if (!repo) return { skipped: 'invalid' };
+        if (repo.fork) return { skipped: 'fork' };
+        if (repo.archived) return { skipped: 'archived' };
+        const full = String(repo.full_name || '');
+        if (repo.private) {
+            log.warn(`[OpenVibe.Git] official mirrors: ${full || repo.name} is private (skipped)`);
+            return { skipped: 'private' };
+        }
+        const name = String(repo.name || full.split('/')[1] || '').toLowerCase();
+        if (!validName(name)) {
+            log.warn(`[OpenVibe.Git] official mirrors: ${full || name} is not a valid repository name here (${name})`);
+            return { skipped: 'invalid' };
+        }
+        const existing = await repos.getRow(settings.owner, name);
+        if (existing) return { existing: true, row: existing };
+
+        // Public and existing through git's own protocol: no REST quota, and the default branch comes with it.
+        const info = await github.probe(full).catch(() => null);
+        if (info && info.state === 'private') {
+            log.warn(`[OpenVibe.Git] official mirrors: ${full} is private (skipped)`);
+            return { skipped: 'private' };
+        }
+        if (info && info.state === 'missing') {
+            log.warn(`[OpenVibe.Git] official mirrors: ${full} does not exist (skipped)`);
+            return { skipped: 'missing' };
+        }
+        if (info && info.state === 'invalid') {
+            log.warn(`[OpenVibe.Git] official mirrors: ${full} is not a valid GitHub repository name (skipped)`);
+            return { skipped: 'invalid' };
+        }
+        if (stoppedNow()) return {};
+
+        // repos.create checks the GitHub URL, reads the metadata (pending when refused) and clones with the mirror
+        // timeout. The probe's answer saves the second ls-refs and names the default branch.
+        try {
+            await repos.create({
+                actor: { username: settings.owner, subject: null },
+                name,
+                mirrorUrl: repo.clone_url || `https://github.com/${full}.git`,
+                mirrorInfo: info,
+            });
+            return { created: true };
+        } catch (err) {
+            if (err && err.status === 409) return { existing: true, row: await repos.getRow(settings.owner, name) };
+            log.warn(`[OpenVibe.Git] official mirror ${full || name}: ${String(err.message || err).slice(0, 300)}`);
+            return { failed: true };
+        }
+    }
+
+    /**
+     * GitHub's signed push (or create) webhook for a repository the forge has no mirror of: adopt it when it belongs
+     * to the official organisation. The signature was checked by the caller; nothing a person typed names the URL.
+     */
+    async function adoptFromWebhook(repository) {
+        if (!enabled() || !repository) return { skipped: 'off' };
+        const full = String(repository.full_name || '');
+        const owner = full.split('/')[0] || (repository.owner && repository.owner.login) || '';
+        if (!owner || owner.toLowerCase() !== String(settings.org).toLowerCase()) return { skipped: 'not-the-organisation' };
+        const out = await adopt(repository);
+        if (out.created) log.log(`[OpenVibe.Git] official mirrors: ${full} adopted from GitHub's push webhook`);
+        return out;
+    }
+
     /** When the last run finished and what it found. */
     async function lastRun() {
         const row = await store.maybe('SELECT last_run_at, last_result FROM git_official_state WHERE id = ?', [STATE_ID]);
@@ -130,61 +202,13 @@ function createOfficialMirrors({ store, repos, config, github, log = console, cl
 
         async function one(repo) {
             if (stopped || !repo) return;
-            if (repo.fork) { summary.skipped.fork += 1; return; }
-            if (repo.archived) { summary.skipped.archived += 1; return; }
-            if (repo.private) {
-                summary.skipped.private += 1;
-                log.warn(`[OpenVibe.Git] official mirrors: ${repo.full_name || repo.name} is private (skipped)`);
-                return;
-            }
-            const full = String(repo.full_name || '');
-            const name = String(repo.name || full.split('/')[1] || '').toLowerCase();
-            if (!validName(name)) {
-                summary.skipped.invalid += 1;
-                log.warn(`[OpenVibe.Git] official mirrors: ${full || name} is not a valid repository name here (${name})`);
-                return;
-            }
-            const existing = await repos.getRow(settings.owner, name);
-            if (existing) {
+            const out = await adopt(repo, { stoppedNow: () => stopped });
+            if (out.skipped) summary.skipped[out.skipped] += 1;
+            else if (out.existing) {
                 summary.existing += 1;
-                if (existing.mirror_meta_state === 'pending') await fillPending(existing, state);
-                return;
-            }
-
-            // Public and existing through git's own protocol: no REST quota, and the default branch comes with it.
-            const info = await github.probe(full).catch(() => null);
-            if (info && info.state === 'private') {
-                summary.skipped.private += 1;
-                log.warn(`[OpenVibe.Git] official mirrors: ${full} is private (skipped)`);
-                return;
-            }
-            if (info && info.state === 'missing') {
-                summary.skipped.missing += 1;
-                log.warn(`[OpenVibe.Git] official mirrors: ${full} does not exist (skipped)`);
-                return;
-            }
-            if (info && info.state === 'invalid') {
-                summary.skipped.invalid += 1;
-                log.warn(`[OpenVibe.Git] official mirrors: ${full} is not a valid GitHub repository name (skipped)`);
-                return;
-            }
-            if (stopped) return;
-
-            // repos.create checks the GitHub URL, reads the metadata (pending when refused) and clones with the
-            // mirror timeout. The probe's answer saves the second ls-refs and names the default branch.
-            try {
-                await repos.create({
-                    actor: { username: settings.owner, subject: null },
-                    name,
-                    mirrorUrl: repo.clone_url || `https://github.com/${full}.git`,
-                    mirrorInfo: info,
-                });
-                summary.created += 1;
-            } catch (err) {
-                if (err && err.status === 409) { summary.existing += 1; return; }
-                summary.failed += 1;
-                log.warn(`[OpenVibe.Git] official mirror ${full || name}: ${String(err.message || err).slice(0, 300)}`);
-            }
+                if (out.row && out.row.mirror_meta_state === 'pending') await fillPending(out.row, state);
+            } else if (out.created) summary.created += 1;
+            else if (out.failed) summary.failed += 1;
         }
 
         // A few clones at once, not the whole list: GitHub sees a handful of connections and the host stays usable.
@@ -253,7 +277,7 @@ function createOfficialMirrors({ store, repos, config, github, log = console, cl
         timer = null;
     }
 
-    return { run, tick, start, stop, enabled, lastRun, STATE_ID };
+    return { run, tick, start, stop, enabled, lastRun, adopt, adoptFromWebhook, STATE_ID };
 }
 
 module.exports = { createOfficialMirrors, STATE_ID, FIRST_RUN_MS, TICK_MS };
