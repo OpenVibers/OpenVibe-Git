@@ -17,6 +17,10 @@ REF=${1:-main}
 REPO=${OV_GIT_REPO:-https://github.com/OpenVibers/OpenVibe-Git.git}
 HOME_DIR=/var/lib/ovci
 PNPM_VERSION=${PNPM_VERSION:-10.6.5}
+# The official Node build, as GitHub's runners (setup-node) and openvibe-shared's test workflow use (its default
+# node-version). Ubuntu's packaged Node is built without TypeScript stripping (node:module stripTypeScriptTypes), which
+# OpenVibe.Tools' tests use, so the runner and every sandbox run this one instead (2026-11-19).
+NODE_VERSION=${NODE_VERSION:-22.22.1}
 
 id ovci >/dev/null 2>&1 || useradd --system --home-dir "$HOME_DIR" --create-home --shell /usr/sbin/nologin --comment 'OpenVibe forge CI runner' ovci
 OVCI_UID=$(id -u ovci)
@@ -41,6 +45,25 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 systemctl enable --now var-lib-ovci-work.mount
+
+# The official Node, checked against nodejs.org's published SHA-256, at /opt/openvibe-node/v<version>; `current` points
+# at it. Root-owned and read-only to the runner.
+NODE_DIR=/opt/openvibe-node/v$NODE_VERSION
+if [ ! -x "$NODE_DIR/bin/node" ]; then
+    TMP=$(mktemp -d)
+    TARBALL="node-v$NODE_VERSION-linux-x64.tar.xz"
+    curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/$TARBALL" -o "$TMP/$TARBALL"
+    curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
+    (cd "$TMP" && grep " $TARBALL\$" SHASUMS256.txt | sha256sum -c --quiet -)
+    install -d -m 0755 /opt/openvibe-node
+    rm -rf "$NODE_DIR.tmp" && mkdir -p "$NODE_DIR.tmp"
+    tar -xJf "$TMP/$TARBALL" -C "$NODE_DIR.tmp" --strip-components=1
+    mv "$NODE_DIR.tmp" "$NODE_DIR"
+    rm -rf "$TMP"
+fi
+ln -sfn "$NODE_DIR" /opt/openvibe-node/current
+chown -R root:root /opt/openvibe-node
+export PATH="/opt/openvibe-node/current/bin:$PATH"
 
 # pnpm into /usr (bubblewrap binds the host's /usr read-only).
 if ! command -v pnpm >/dev/null 2>&1 || [ "$(pnpm --version 2>/dev/null)" != "$PNPM_VERSION" ]; then
