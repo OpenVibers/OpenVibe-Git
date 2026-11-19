@@ -189,7 +189,7 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
         if (repo.fork) return { skipped: 'fork' };
         const owner = full.split('/')[0];
         if (owner.toLowerCase() !== settings.org.toLowerCase()) return { skipped: 'not-the-network' };
-        if (payload.deleted) return { skipped: 'deleted' };
+        if (payload.deleted) return await onBranchDeleted(row, String(payload.ref || ''));
         const ref = String(payload.ref || '');
         if (!ref.startsWith('refs/heads/')) return { skipped: 'not-a-branch' };
         const after = String(payload.after || '');
@@ -200,6 +200,27 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
         if (!(await enabledFor(row))) return { skipped: 'not-enabled' };
         const out = await enqueue(row, { sha: after, branch: ref.slice('refs/heads/'.length), pusher, source: 'github' });
         return { ...out, pusher, member: who.why };
+    }
+
+    /**
+     * A branch deleted on GitHub (a pull request merged with --delete-branch, or closed): its queued or running run
+     * tests something nobody will merge, so it stops, and its commit's status says it was not run (2026-11-19: a pin
+     * round queued 60 runs on the shared node, and GitHub merged most of them before the forge reached them).
+     */
+    async function onBranchDeleted(row, ref) {
+        if (!ref.startsWith('refs/heads/')) return { skipped: 'deleted' };
+        const branch = cleanBranch(ref.slice('refs/heads/'.length));
+        const stopped = await store.many(
+            `UPDATE git_ci_runs SET state = 'superseded', description = 'Not run: the branch was deleted', finished_at = now(), updated_at = now()
+             WHERE repo_id = ? AND branch = ? AND state IN ('queued', 'running') RETURNING id, sha`,
+            [row.id, branch],
+        );
+        for (const run of stopped) {
+            await checks.recordIfChanged(row.id, run.sha, {
+                context: settings.context || CONTEXT, state: 'error', description: 'Not run: the branch was deleted', target_url: runUrl(row, run.id),
+            }, 'svc:forge-runner').catch((err) => log.warn('[OpenVibe.Git] CI deleted-branch status:', err.message));
+        }
+        return { skipped: 'deleted', stopped: stopped.map((r) => r.id) };
     }
 
     /** A push that landed on the forge itself: only the network's own service tokens count as its members. */
