@@ -4,6 +4,7 @@
  * Git over HTTPS, the wire half: git's own `git http-backend` behind our identity.
  *
  *   GET  /<owner>/<name>.git/info/refs?service=git-upload-pack     the ref advertisement a clone asks for
+ *        (each of the four also without ".git": the repository page's own address clones, as on GitHub)
  *   POST /<owner>/<name>.git/git-upload-pack                       the pack a clone receives
  *   GET  /<owner>/<name>.git/info/refs?service=git-receive-pack    the advertisement a push asks for
  *   POST /<owner>/<name>.git/git-receive-pack                      the pack a push sends
@@ -18,10 +19,14 @@ const { validOwner, validName } = require('./refs');
 const { REPOS_DIR, HOOKS_DIR } = require('../paths');
 
 const ROUTE = /^\/([^/]+)\/([^/]+)\.git(?:\/(.*))?$/;
+// The page's own address clones too, as on GitHub (2026-11-19): /<owner>/<name>/info/refs and the two packs, without
+// ".git". Actor hands Codes the address of the repository it made for the work, the page's; every such clone fell
+// through to the page routes and was answered "Repository not found", token or no token.
+const PAGE_ROUTE = /^\/([^/]+)\/([^/]+)\/(info\/refs|git-upload-pack|git-receive-pack)$/;
 const ALLOWED_SUFFIX = /^(info\/refs|git-upload-pack|git-receive-pack)$/;
 
 function parseGitPath(pathname) {
-    const m = ROUTE.exec(pathname);
+    const m = ROUTE.exec(pathname) || PAGE_ROUTE.exec(pathname);
     if (!m) return null;
     const [, owner, rawName, rest = ''] = m;
     const name = rawName;

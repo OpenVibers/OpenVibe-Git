@@ -27,6 +27,15 @@ const { mintToken } = require('../server/auth/git-auth');
         await t.git(['clone', '--quiet', t.cloneUrl('sam', 'only-me', readToken.token), privateDir]);
         assert.ok(fs.existsSync(path.join(privateDir, 'README.md')));
 
+        // The page's own address clones too, without ".git" (2026-11-19: Actor hands Codes the page address of the
+        // repository it made, and every such clone was answered "Repository not found", token or not).
+        const page = (owner, name, token) => t.cloneUrl(owner, name, token).replace(/\.git$/, '');
+        await t.git(['clone', '--quiet', page('sam', 'clone-me'), path.join(work, 'public-page')]);
+        assert.ok(fs.existsSync(path.join(work, 'public-page', 'index.html')), 'a public repository from its page address');
+        await assert.rejects(() => t.git(['clone', '--quiet', page('sam', 'only-me'), path.join(work, 'no-page')]), 'a private one still needs a token');
+        await t.git(['clone', '--quiet', page('sam', 'only-me', readToken.token), path.join(work, 'private-page')]);
+        assert.ok(fs.existsSync(path.join(work, 'private-page', 'README.md')), 'a private repository from its page address, with the token');
+
         // A push changes the repository.
         const writeToken = await mintToken(t.store, { subject: sam.subject, scopes: ['git.repo.read', 'git.repo.write'], hours: 1 });
         await t.git(['-c', 'user.name=Sam', '-c', 'user.email=sam@example.com', 'checkout', '-b', 'phone'], publicDir);
@@ -34,6 +43,8 @@ const { mintToken } = require('../server/auth/git-auth');
         await t.git(['add', 'phone.txt'], publicDir);
         await t.git(['-c', 'user.name=Sam', '-c', 'user.email=sam@example.com', 'commit', '-q', '-m', 'Add a phone note'], publicDir);
         await t.git(['push', '--quiet', t.cloneUrl('sam', 'clone-me', writeToken.token), 'phone'], publicDir);
+        await t.git(['push', '--quiet', t.cloneUrl('sam', 'clone-me', writeToken.token).replace(/\.git$/, ''), 'phone:phone-page'], publicDir);
+        assert.ok(await t.ctx.git.readBlob('sam', 'clone-me', 'phone-page', 'phone.txt'), 'a push to the page address lands too');
         const pushed = await t.ctx.git.readBlob('sam', 'clone-me', 'phone', 'phone.txt');
         assert.equal(pushed.text, 'a phone-first change\n');
 
