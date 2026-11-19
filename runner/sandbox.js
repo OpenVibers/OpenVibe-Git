@@ -84,6 +84,19 @@ const envList = (extra = {}) => ({
     ...extra,
 });
 
+/**
+ * Host folders a runner also shows its sandboxes, read-only (`roBinds`): software the host installed outside /usr, such
+ * as Chrome under /opt/google (2026-11-19: /usr/bin/google-chrome is a link there, so tests on the shared node found no
+ * Chrome). Only existing absolute folders, never a home, /etc, /root, /var, /run, /proc, /sys, /dev or the root itself.
+ */
+const FORBIDDEN_BINDS = /^\/(home|root|etc|var|run|proc|sys|dev|tmp|boot|srv|mnt|media)(\/|$)/;
+function safeRoBinds(list) {
+    return (Array.isArray(list) ? list : []).map(String).filter((p) => {
+        if (!path.isAbsolute(p) || p === '/' || p.includes('..') || FORBIDDEN_BINDS.test(p)) return false;
+        try { return fs.statSync(p).isDirectory(); } catch { return false; }
+    });
+}
+
 /** The install phase's script: relay the Unix-socket proxy on loopback, point npm/pnpm at it, run the command. */
 function installScript(command, { proxy = true } = {}) {
     return `#!/bin/sh
@@ -108,7 +121,7 @@ ${command}
 /**
  * The podman command line for one phase. proxySock is null for the test phase (no network at all).
  */
-function podmanArgs({ name, workspace, image, limits, proxySock = null, sharedCache = null, testEnv = {}, script }) {
+function podmanArgs({ name, workspace, image, limits, proxySock = null, sharedCache = null, testEnv = {}, roBinds = [], script }) {
     const args = [
         'run', '--rm', '--name', name, '--pull=never', '--network=none',
         '--cpus', String(limits.cpus), '--memory', `${limits.memory_mb}m`, '--memory-swap', `${limits.memory_mb}m`,
@@ -122,6 +135,7 @@ function podmanArgs({ name, workspace, image, limits, proxySock = null, sharedCa
     for (const [key, value] of Object.entries(envList({ ...phaseEnv(proxySock), ...cacheEnv(shared), ...(proxySock ? {} : testEnv) }))) args.push('-e', `${key}=${value}`);
     if (proxySock) args.push('-v', `${proxySock}:/run/ci-proxy.sock:rw`);
     if (shared) args.push('-v', `${shared}:${SHARED_CACHE}:rw`);
+    for (const p of safeRoBinds(roBinds)) args.push('-v', `${p}:${p}:ro`);
     args.push(image, '/bin/sh', '-c', script);
     return args;
 }
@@ -140,7 +154,9 @@ function bwrapEtc(workspace) {
         hosts: '127.0.0.1 localhost ci\n::1 localhost ip6-localhost ip6-loopback\n',
         hostname: 'ci\n',
         'resolv.conf': '# No DNS in the sandbox: the install proxy resolves the names it allows.\n',
-        'nsswitch.conf': 'passwd: files\ngroup: files\nhosts: files\n',
+        // myhostname answers localhost and *.localhost with loopback, as GitHub's Ubuntu runners do (systemd): a test that
+        // serves api.localhost and good.localhost on 127.0.0.1 resolves them here too. Nothing else resolves.
+        'nsswitch.conf': 'passwd: files\ngroup: files\nhosts: files myhostname\n',
     };
     for (const [name, content] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), content);
     return dir;
@@ -150,7 +166,7 @@ function bwrapEtc(workspace) {
  * The bubblewrap command line for one phase (no systemd scope here; the caller wraps it). Node is bound from
  * the running runner's own installation, because a workstation's Node is rarely in /usr.
  */
-function bwrapArgs({ workspace, limits, proxySock = null, sharedCache = null, testEnv = {}, script }) {
+function bwrapArgs({ workspace, limits, proxySock = null, sharedCache = null, testEnv = {}, roBinds = [], script }) {
     const node = fs.realpathSync(process.execPath);
     const prefix = path.dirname(path.dirname(node));
     const nodeInside = path.join('/opt/node', path.relative(prefix, node));
@@ -188,6 +204,7 @@ function bwrapArgs({ workspace, limits, proxySock = null, sharedCache = null, te
     args.push('--bind', workspace, '/workspace');
     if (proxySock) args.push('--bind', proxySock, '/run/ci-proxy.sock');
     if (shared) args.push('--bind', shared, SHARED_CACHE);
+    for (const p of safeRoBinds(roBinds)) args.push('--ro-bind', p, p);
     args.push('--remount-ro', '/', '--chdir', '/workspace', '--', '/bin/sh', '-c', script);
     return { args, nodeInside };
 }
@@ -217,5 +234,5 @@ function scopeCleanup(unit) {
 }
 
 module.exports = {
-    detectEngine, podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, envList, cacheEnv, UID, GID, RELAY, SHARED_CACHE,
+    detectEngine, podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, envList, cacheEnv, safeRoBinds, UID, GID, RELAY, SHARED_CACHE,
 };

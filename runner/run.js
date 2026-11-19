@@ -142,11 +142,11 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             if (engine.kind === 'podman') {
                 return {
                     command: 'podman',
-                    args: [...rootArgs, ...podmanArgs({ name, workspace: runDir, image: job.image, limits, proxySock, sharedCache: cfg.sharedCache || null, testEnv, script: command })],
+                    args: [...rootArgs, ...podmanArgs({ name, workspace: runDir, image: job.image, limits, proxySock, sharedCache: cfg.sharedCache || null, testEnv, roBinds: cfg.roBinds, script: command })],
                     kill: () => podmanCleanup(name, rootArgs),
                 };
             }
-            const wrapped = bwrapScope({ name, limits, args: bwrapArgs({ workspace: runDir, limits, proxySock, sharedCache: cfg.sharedCache || null, testEnv, script: command }).args });
+            const wrapped = bwrapScope({ name, limits, args: bwrapArgs({ workspace: runDir, limits, proxySock, sharedCache: cfg.sharedCache || null, testEnv, roBinds: cfg.roBinds, script: command }).args });
             return { command: wrapped.command, args: wrapped.args, kill: () => scopeCleanup(wrapped.killUnit) };
         };
 

@@ -126,6 +126,15 @@ const write = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: tr
         const podTest = podmanArgs({ name: 'n', workspace: ws, image: 'img', limits, proxySock: null, sharedCache: shared, script: 'true' });
         assert.ok(!podTest.some((x) => String(x).includes(':/cache')), 'podman\'s test phase gets no shared cache either');
         assert.match(installScript('npm ci'), /NODE_USE_ENV_PROXY=1/, 'Node\'s own fetch uses the proxy');
+        // Read-only host folders (Chrome under /opt/google): existing absolute folders only, never a home, /etc or /.
+        const { safeRoBinds } = require('../runner/sandbox');
+        assert.deepStrictEqual(safeRoBinds(['/usr/share', '/', '/etc', '/home/x', '/tmp', 'relative', '/usr/share/../../etc', '/does/not/exist']), ['/usr/share']);
+        const withBind = bwrapArgs({ workspace: ws, limits, proxySock: null, roBinds: ['/usr/share', '/etc'], script: 'true' }).args;
+        assert.ok(withBind.some((a, i) => a === '--ro-bind' && withBind[i + 1] === '/usr/share' && withBind[i + 2] === '/usr/share'), 'shown read-only at the same path');
+        const podBind = podmanArgs({ name: 'n', workspace: ws, image: 'img', limits, proxySock: null, roBinds: ['/usr/share', '/etc'], script: 'true' });
+        assert.ok(podBind.includes('/usr/share:/usr/share:ro') && !podBind.includes('/etc:/etc:ro'), 'podman too, and /etc is never bound');
+        const etcDir = fs.readFileSync(path.join(ws, '.ci', 'etc', 'nsswitch.conf'), 'utf8');
+        assert.match(etcDir, /^hosts: files myhostname$/m, '*.localhost resolves to loopback, as on GitHub\'s runners');
         // The test phase gets the timeout scale; the install phase does not.
         const scaledTest = bwrapArgs({ workspace: ws, limits, proxySock: null, testEnv: { OV_TEST_TIMEOUT_SCALE: '2' }, script: 'true' }).args;
         assert.strictEqual(scaledTest[scaledTest.indexOf('OV_TEST_TIMEOUT_SCALE') + 1], '2');
