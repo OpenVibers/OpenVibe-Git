@@ -9,7 +9,8 @@
  *     "tokenFile": "~/.config/openvibe/git-ci.token",
  *     "workRoot": "~/.cache/openvibe-git-ci",
  *     "engine": "auto",                         // auto | podman | bwrap
- *     "concurrency": 1,                         // runs at once (1-8); the shared node runs 3
+ *     "concurrency": 1,                         // runs at once (1-8); the shared node runs 2
+ *     "testTimeoutScale": 1,                    // OV_TEST_TIMEOUT_SCALE in the test phase (1-10; the node: 2)
  *     "depsCache": "~/.cache/openvibe-git-ci/deps",   // installs kept between runs ("" turns it off)
  *     "depsCacheMb": 20480,
  *     "sharedCache": "~/.cache/openvibe-git-ci/shared", // npm and pnpm download caches, install phase only ("" off)
@@ -67,6 +68,9 @@ function loadConfig(env = process.env) {
         engine: ['auto', 'podman', 'bwrap'].includes(raw.engine) ? raw.engine : 'auto',
         image: String(raw.image || 'docker.io/library/node:22-bookworm'),
         concurrency: int(raw.concurrency, 1, 1, 8),
+        // The test phase's OV_TEST_TIMEOUT_SCALE (openvibe-shared/test-runner 4.323.0 and later): a runner slower or busier
+        // than the machines a repository's per-file limits were set on stretches them (the shared node: 2).
+        testTimeoutScale: Math.min(10, Math.max(1, Number(raw.testTimeoutScale) || 1)),
         // Installs kept between runs (runner/deps-cache.js) and the package managers' download caches. Both live on
         // disk: the page cache keeps the busy ones in memory and gives it back when something else needs it.
         depsCache: raw.depsCache === '' ? '' : expand(raw.depsCache || path.join(HOME, '.cache', 'openvibe-git-ci', 'deps')),

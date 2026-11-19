@@ -120,8 +120,17 @@ repositories) to `ov-node-01` (8 cores, 15 GB):
   lockfile → `npm ci`, a `package.json` alone → `npm install`; then `npm test`). A repository with no test script
   reports "Nothing to test here" instead of failing. A repository that needs more names its commands (Live skips
   onnxruntime's CUDA download; Games runs typecheck and lint like its workflow).
-- **Three runs at once** (`concurrency`, up to 8). The forge keeps one live run per repository, so they are always
-  different repositories. Each worker claims as `<host>/<n>`.
+- **Two runs at once** (`concurrency`, up to 8). The forge keeps one live run per repository, so they are always
+  different repositories. Each worker claims as `<host>/<n>`. Three was tried first: three full suites on the node's
+  four cores took Live 14 minutes and Network 18 (GitHub: 8 and 12), so it runs two. The test phase sets
+  `OV_TEST_TIMEOUT_SCALE=2` (`testTimeoutScale`; openvibe-shared's test runner 4.323.0 and later stretch each file's
+  limit by it), since a file's limit was set on GitHub's machines.
+- **Same files, same verdict.** A push whose tree is exactly that of a run that already passed (a pull request merged
+  onto an unmoved main) is recorded as passed at once, pointing at that run; nothing is tested twice. A run started by
+  hand always runs.
+- **Merging on it.** The ship script (`merge-after-ci.sh`) merges on a green `forge/test` without waiting for GitHub
+  Actions, and refuses on a red one once the repository's main has passed on the forge (before that, a suite that
+  cannot pass without the network does not block a merge GitHub would allow). The board is `/ci`.
 - **Work in memory.** The work directories are a tmpfs (`/var/lib/ovci/work`, 8 GB at most): an install's tens of
   thousands of files never touch the disk, and a run's directory is gone when it ends.
 - **Installs kept per lockfile** (`runner/deps-cache.js`). After an install phase succeeds, what it made (every

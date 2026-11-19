@@ -81,6 +81,7 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
     say(`[git-ci-runner] sandbox: ${engine.why}; ${Object.keys(cfg.repos).length} repositories configured`);
     const deps = cfg.depsCache ? createDepsCache({ root: cfg.depsCache, maxMb: cfg.depsCacheMb, log: say }) : null;
     if (cfg.sharedCache) for (const sub of ['npm', 'pnpm-store']) fs.mkdirSync(path.join(cfg.sharedCache, sub), { recursive: true, mode: 0o700 });
+    const testEnv = cfg.testTimeoutScale > 1 ? { OV_TEST_TIMEOUT_SCALE: String(cfg.testTimeoutScale) } : {};
     // Every phase running now, across the runs this runner holds at once: stop() ends them all.
     const activeKills = new Set();
     let stopping = false;
@@ -141,11 +142,11 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             if (engine.kind === 'podman') {
                 return {
                     command: 'podman',
-                    args: [...rootArgs, ...podmanArgs({ name, workspace: runDir, image: job.image, limits, proxySock, sharedCache: cfg.sharedCache || null, script: command })],
+                    args: [...rootArgs, ...podmanArgs({ name, workspace: runDir, image: job.image, limits, proxySock, sharedCache: cfg.sharedCache || null, testEnv, script: command })],
                     kill: () => podmanCleanup(name, rootArgs),
                 };
             }
-            const wrapped = bwrapScope({ name, limits, args: bwrapArgs({ workspace: runDir, limits, proxySock, sharedCache: cfg.sharedCache || null, script: command }).args });
+            const wrapped = bwrapScope({ name, limits, args: bwrapArgs({ workspace: runDir, limits, proxySock, sharedCache: cfg.sharedCache || null, testEnv, script: command }).args });
             return { command: wrapped.command, args: wrapped.args, kill: () => scopeCleanup(wrapped.killUnit) };
         };
 

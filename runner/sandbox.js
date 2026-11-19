@@ -108,7 +108,7 @@ ${command}
 /**
  * The podman command line for one phase. proxySock is null for the test phase (no network at all).
  */
-function podmanArgs({ name, workspace, image, limits, proxySock = null, sharedCache = null, script }) {
+function podmanArgs({ name, workspace, image, limits, proxySock = null, sharedCache = null, testEnv = {}, script }) {
     const args = [
         'run', '--rm', '--name', name, '--pull=never', '--network=none',
         '--cpus', String(limits.cpus), '--memory', `${limits.memory_mb}m`, '--memory-swap', `${limits.memory_mb}m`,
@@ -119,7 +119,7 @@ function podmanArgs({ name, workspace, image, limits, proxySock = null, sharedCa
         '--stop-timeout', '5',
     ];
     const shared = proxySock ? sharedCache : null;
-    for (const [key, value] of Object.entries(envList({ ...phaseEnv(proxySock), ...cacheEnv(shared) }))) args.push('-e', `${key}=${value}`);
+    for (const [key, value] of Object.entries(envList({ ...phaseEnv(proxySock), ...cacheEnv(shared), ...(proxySock ? {} : testEnv) }))) args.push('-e', `${key}=${value}`);
     if (proxySock) args.push('-v', `${proxySock}:/run/ci-proxy.sock:rw`);
     if (shared) args.push('-v', `${shared}:${SHARED_CACHE}:rw`);
     args.push(image, '/bin/sh', '-c', script);
@@ -150,7 +150,7 @@ function bwrapEtc(workspace) {
  * The bubblewrap command line for one phase (no systemd scope here; the caller wraps it). Node is bound from
  * the running runner's own installation, because a workstation's Node is rarely in /usr.
  */
-function bwrapArgs({ workspace, limits, proxySock = null, sharedCache = null, script }) {
+function bwrapArgs({ workspace, limits, proxySock = null, sharedCache = null, testEnv = {}, script }) {
     const node = fs.realpathSync(process.execPath);
     const prefix = path.dirname(path.dirname(node));
     const nodeInside = path.join('/opt/node', path.relative(prefix, node));
@@ -162,7 +162,7 @@ function bwrapArgs({ workspace, limits, proxySock = null, sharedCache = null, sc
         '--uid', String(UID), '--gid', String(GID), '--hostname', 'ci',
     ];
     const shared = proxySock ? sharedCache : null;
-    for (const [key, value] of Object.entries({ ...envList({ ...phaseEnv(proxySock), ...cacheEnv(shared) }), PATH: `${nodeBin}:/usr/local/bin:/usr/bin:/bin` })) {
+    for (const [key, value] of Object.entries({ ...envList({ ...phaseEnv(proxySock), ...cacheEnv(shared), ...(proxySock ? {} : testEnv) }), PATH: `${nodeBin}:/usr/local/bin:/usr/bin:/bin` })) {
         args.push('--setenv', key, value);
     }
     args.push('--ro-bind', '/usr', '/usr');
