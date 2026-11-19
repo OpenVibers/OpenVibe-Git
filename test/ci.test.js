@@ -172,6 +172,19 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
         for (const id of [claimedFeature.run.id, claimedMain.run.id]) {
             assert.equal((await t.get(`/api/v1/ci/runs/${id}/status`, { bearer: TOKEN, json: { state: 'success' } })).status, 200);
         }
+        // A deleted branch (a pull request merged with --delete-branch): its queued run stops, and the commit's status
+        // says it was not run instead of staying pending.
+        const goneHead = await t.ctx.git.commitFiles('openvibers', 'live2', { branch: 'gone', base: 'main', message: 'Soon merged', files: [{ path: 'g.txt', content: 'g\n' }], author: { name: 'OpenVibers', email: 'contact@openvibe.network' } });
+        const goneRun = await t.ctx.ci.onGithubPush(live2.row, push(goneHead.sha, 'OpenVibers', live2.full, { ref: 'refs/heads/gone' }));
+        assert.equal(goneRun.run.state, 'queued');
+        const deleted = await t.ctx.ci.onGithubPush(live2.row, push('0'.repeat(40), 'OpenVibers', live2.full, { ref: 'refs/heads/gone', deleted: true }));
+        assert.deepStrictEqual(deleted.stopped, [goneRun.run.id]);
+        const goneState = await t.ctx.ci.runFor(live2.row, goneRun.run.id);
+        assert.equal(goneState.state, 'superseded');
+        assert.match(goneState.description, /the branch was deleted/);
+        const goneStatus = await t.get(`/api/v1/repos/openvibers/live2/commits/${goneHead.sha}/statuses`);
+        assert.equal(goneStatus.json().statuses[0].state, 'error');
+        assert.equal((await t.ctx.ci.onGithubPush(live2.row, push('0'.repeat(40), 'OpenVibers', live2.full, { ref: 'refs/tags/v9', deleted: true }))).skipped, 'deleted', 'a deleted tag stops nothing');
 
         // A push that lands on the forge itself: the network's own service token may run it, a person's token
         // may not (the forge knows an OpenVibe account, not the GitHub login the member rule is about).

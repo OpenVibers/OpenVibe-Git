@@ -449,9 +449,11 @@ function createApi(ctx) {
         const out = await mirrors.handleWebhook(req.body, req.headers);
         res.status(out.status).json(out.body);
         // A push starts a forge run only after the mirror has the pushed commit; a pull request never does.
-        if (out.event === 'push' && out.row && out.payload && out.sync) {
-            if (ctx.spacePublish) out.sync.then(() => ctx.spacePublish.afterPush(out.row, { ref: out.payload.ref })).catch(() => {});
-            out.sync
+        // A deleted branch needs no sync first: its queued run stops at once.
+        if (out.event === 'push' && out.row && out.payload && (out.sync || out.payload.deleted)) {
+            const synced = out.sync || Promise.resolve();
+            if (ctx.spacePublish && out.sync) out.sync.then(() => ctx.spacePublish.afterPush(out.row, { ref: out.payload.ref })).catch(() => {});
+            synced
                 .then(() => ci.onGithubPush(out.row, out.payload))
                 .catch((err) => log.warn(`[OpenVibe.Git] CI push ${out.row.owner_username}/${out.row.name}: ${String(err.message || err).slice(0, 200)}`));
         }
