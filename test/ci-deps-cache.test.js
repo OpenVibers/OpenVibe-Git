@@ -126,14 +126,21 @@ const write = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: tr
         const podTest = podmanArgs({ name: 'n', workspace: ws, image: 'img', limits, proxySock: null, sharedCache: shared, script: 'true' });
         assert.ok(!podTest.some((x) => String(x).includes(':/cache')), 'podman\'s test phase gets no shared cache either');
         assert.match(installScript('npm ci'), /NODE_USE_ENV_PROXY=1/, 'Node\'s own fetch uses the proxy');
+        // The test phase gets the timeout scale; the install phase does not.
+        const scaledTest = bwrapArgs({ workspace: ws, limits, proxySock: null, testEnv: { OV_TEST_TIMEOUT_SCALE: '2' }, script: 'true' }).args;
+        assert.strictEqual(scaledTest[scaledTest.indexOf('OV_TEST_TIMEOUT_SCALE') + 1], '2');
+        const scaledInstall = bwrapArgs({ workspace: ws, limits, proxySock: path.join(ws, 'p.sock'), testEnv: { OV_TEST_TIMEOUT_SCALE: '2' }, script: 'true' }).args;
+        assert.ok(!scaledInstall.includes('OV_TEST_TIMEOUT_SCALE'));
+        assert.ok(podmanArgs({ name: 'n', workspace: ws, image: 'img', limits, proxySock: null, testEnv: { OV_TEST_TIMEOUT_SCALE: '2' }, script: 'true' }).includes('OV_TEST_TIMEOUT_SCALE=2'));
         assert.doesNotMatch(installScript('npm test', { proxy: false }), /NODE_USE_ENV_PROXY/);
 
         // ── The configuration ──
         const token = path.join(tmp, 'token');
         fs.writeFileSync(token, 'x'.repeat(40), { mode: 0o600 });
         const conf = path.join(tmp, 'ci.json');
-        fs.writeFileSync(conf, JSON.stringify({ tokenFile: token, concurrency: 8, repos: { 'OpenVibers/OpenVibe.Live': {} } }));
+        fs.writeFileSync(conf, JSON.stringify({ tokenFile: token, concurrency: 8, testTimeoutScale: 2, repos: { 'OpenVibers/OpenVibe.Live': {} } }));
         const cfg = loadConfig({ GIT_CI_CONFIG: conf });
+        assert.strictEqual(cfg.testTimeoutScale, 2);
         assert.strictEqual(cfg.concurrency, 8);
         assert.ok(cfg.depsCache && cfg.sharedCache, 'both caches are on by default');
         assert.deepStrictEqual(registrations(cfg).map((r) => [r.full_name, r.install_command, r.test_command]), [['openvibers/openvibe.live', 'auto', 'auto']]);

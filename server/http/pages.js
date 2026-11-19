@@ -177,7 +177,7 @@ function createPageRoutes(ctx) {
     r.get('/ci', h(async (req, res) => {
         const data = await ci.board({ limit: req.query.limit });
         res.set('Cache-Control', 'no-store');
-        return page(req, res, ciViews.board({ ...data, runners: config.ci.boardRunners || 3 }), { title: 'CI', description: 'Every OpenVibers repository, tested on our own runner.', index: false });
+        return page(req, res, ciViews.board({ ...data, runners: config.ci.boardRunners || 2 }), { title: 'CI', description: 'Every OpenVibers repository, tested on our own runner.', index: false });
     }));
 
     r.get('/machines', h(async (req, res) => {
