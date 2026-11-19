@@ -132,15 +132,35 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
             return { skipped: 'duplicate', run: rowToRun(live, { baseUrl: base(), owner: row.owner_username, name: row.name }) };
         }
         const id = store.newId('cir');
+        // The same files as a run that already passed (a pull request merged onto an unmoved main, a branch made from a
+        // tested commit): that verdict answers this push, and the runner tests something new instead. A manual run
+        // (force) always runs.
+        const tree = git && git.resolveTree ? await git.resolveTree(row.owner_username, row.name, clean).catch(() => null) : null;
+        const same = tree && !force
+            ? await store.maybe("SELECT * FROM git_ci_runs WHERE repo_id = ? AND tree = ? AND state = 'success' ORDER BY finished_at DESC LIMIT 1", [row.id, tree])
+            : null;
         await store.execute(
             "UPDATE git_ci_runs SET state = 'superseded', description = ?, finished_at = now(), updated_at = now() WHERE repo_id = ? AND state IN ('queued', 'running')",
             [`Superseded by ${clean.slice(0, 12)}`, row.id],
         );
+        if (same) {
+            const description = text(`Same files as ${same.sha.slice(0, 12)} (${same.branch}), which passed: ${same.description || 'passed'}`, 1000);
+            await store.execute(
+                `INSERT INTO git_ci_runs (id, repo_id, sha, branch, pusher, source, state, description, runner, started_at, finished_at, duration_ms, tree, exit_code)
+                 VALUES (?, ?, ?, ?, ?, ?, 'success', ?, 'forge (same files)', now(), now(), 0, ?, 0)`,
+                [id, row.id, clean, ref, pusher ? text(pusher, 200) : null, text(source, 20), description, tree],
+            );
+            await checks.recordIfChanged(row.id, clean, {
+                context: settings.context || CONTEXT, state: 'success', description: text(`Same files as ${same.sha.slice(0, 12)}, which passed`, 140), target_url: runUrl(row, id),
+            }, 'svc:forge-runner').catch((err) => log.warn('[OpenVibe.Git] CI same-tree status:', err.message));
+            const done = await store.maybe('SELECT * FROM git_ci_runs WHERE id = ?', [id]);
+            return { run: rowToRun(done, { baseUrl: base(), owner: row.owner_username, name: row.name }), same_as: same.id };
+        }
         try {
             await store.execute(
-                `INSERT INTO git_ci_runs (id, repo_id, sha, branch, pusher, source, state, description)
-                 VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)`,
-                [id, row.id, clean, ref, pusher ? text(pusher, 200) : null, text(source, 20), 'Queued on the forge runner'],
+                `INSERT INTO git_ci_runs (id, repo_id, sha, branch, pusher, source, state, description, tree)
+                 VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
+                [id, row.id, clean, ref, pusher ? text(pusher, 200) : null, text(source, 20), 'Queued on the forge runner', tree],
             );
         } catch (err) {
             if (/duplicate key|unique/i.test(String(err.message))) {

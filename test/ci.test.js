@@ -105,6 +105,14 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
         assert.equal(apiRun.json().log, 'installing…\n47 tests passed\n');
         assert.equal((await t.get(`/api/v1/ci/runs/${job.run.id}/status`, { bearer: TOKEN, json: { state: 'failure' } })).status, 409, 'a finished run cannot be changed');
 
+        // The same files again (here: the same commit pushed as another branch, like a pull request merged onto an
+        // unmoved main): the passed run answers it, nothing is queued, the commit status is green at once.
+        const again = await t.ctx.ci.enqueue(await t.ctx.repos.getRow('openvibers', 'live'), { sha: live.head, branch: 'merged-main', pusher: 'openvibers' });
+        assert.equal(again.run.state, 'success', JSON.stringify(again));
+        assert.match(again.run.description, /^Same files as [0-9a-f]{12} \(/);
+        assert.equal(again.same_as, job.run.id);
+        assert.equal(again.run.runner, 'forge (same files)');
+
         // The board: every public repository's runs in one place, the finished one among the latest.
         const board = (await t.get('/api/v1/ci/board')).json();
         assert.ok(board.recent.some((r) => r.id === job.run.id && r.state === 'success' && r.repo === 'openvibers/live'), 'the verdict is on the board');
@@ -161,6 +169,7 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
         const manual = await t.get('/api/v1/repos/openvibers/live/ci/runs', { as: owner, json: {} });
         assert.equal(manual.status, 201, manual.text);
         assert.equal(manual.json().run.source, 'manual');
+        assert.equal(manual.json().run.state, 'queued', 'a run started by hand runs even when the same files passed');
         assert.equal((await t.get('/api/v1/repos/openvibers/live/ci/runs', { as: t.asUser('mallory'), json: {} })).status, 403);
         assert.ok(!t.logs().join('\n').includes(TOKEN), 'the runner token is never logged');
 

@@ -94,6 +94,16 @@ async function resolveCommit(owner, name, ref) {
     } catch { return null; }
 }
 
+/** The tree a commit points at, or null (the commit is not here yet, or the name is not a commit). */
+async function resolveTree(owner, name, sha) {
+    if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(String(sha || ''))) return null;
+    if (!(await repoExists(owner, name))) return null;
+    try {
+        const out = await runText(['rev-parse', '--verify', '--quiet', '--end-of-options', `${sha}^{tree}`], { cwd: repoDir(owner, name) });
+        return out.trim() || null;
+    } catch { return null; }
+}
+
 async function defaultRef(owner, name, branch = 'main') {
     return resolveCommit(owner, name, branch) ? branch : null;
 }
@@ -545,7 +555,7 @@ async function removeRepo(owner, name) {
 }
 
 module.exports = {
-    repoDir, ensureDataDirs, repoExists, repoBytes, initRepo, setRepoConfig, setRemote, resolveCommit, defaultRef,
+    repoDir, ensureDataDirs, repoExists, repoBytes, initRepo, setRepoConfig, setRemote, resolveCommit, resolveTree, defaultRef,
     readTree, readBlob, rawBlob, blobBytes, history, commitDetail, branches, tags, contributors, commitsPerWeek, languages, commitFiles,
     writeInitialCommit, cloneMirror, cloneLocal, fetchMirror, pushMirror, removeRepo, parseLsTree, catFiles,
     remoteRefs, localRefs, mirrorChanged,
