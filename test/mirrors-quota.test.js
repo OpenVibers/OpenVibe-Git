@@ -164,7 +164,7 @@ const CONTRACTS = [
             t.ctx.git.mirrorChanged = async () => { changed += 1; return false; };
             t.ctx.git.fetchMirror = async () => { fetched += 1; return true; };
             t.ctx.git.languages = async () => ({});
-            const mirrors = createMirrors({ store: t.store, repos: t.ctx.repos, config: t.config, git: t.ctx.git, github: t.ctx.github, log: { warn() {} } });
+            const mirrors = createMirrors({ store: t.store, repos: t.ctx.repos, config: t.config, git: t.ctx.git, github: t.ctx.github, log: { warn() {} }, lookup });
 
             await mirrors.poll();
             assert.equal(changed, 1);

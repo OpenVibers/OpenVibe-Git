@@ -9,15 +9,18 @@
  *     "tokenFile": "~/.config/openvibe/git-ci.token",
  *     "workRoot": "~/.cache/openvibe-git-ci",
  *     "engine": "auto",                         // auto | podman | bwrap
- *     "concurrency": 1,
+ *     "concurrency": 1,                         // runs at once (1-8); the shared node runs 3
+ *     "depsCache": "~/.cache/openvibe-git-ci/deps",   // installs kept between runs ("" turns it off)
+ *     "depsCacheMb": 20480,
+ *     "sharedCache": "~/.cache/openvibe-git-ci/shared", // npm and pnpm download caches, install phase only ("" off)
  *     "githubStatus": true,                     // also post the verdict to the GitHub pull request (via gh)
  *     "githubContext": "forge/test",
  *     "pollMs": 5000,
  *     "proxyAllow": ["registry.npmjs.org", "codeload.github.com", "git.openvibe.codes"],
  *     "repos": {
  *       "openvibers/openvibe.shared": {
- *         "install_command": "npm ci --no-audit --no-fund",
- *         "test_command": "npm test",
+ *         "install_command": "auto",             // auto (the default): pnpm, npm ci or npm install by lockfile
+ *         "test_command": "auto",                // auto: npm test, or nothing when there is no test script
  *         "timeout_seconds": 1800
  *       }
  *     }
@@ -63,7 +66,12 @@ function loadConfig(env = process.env) {
         podmanStorageConf: expand(raw.podmanStorageConf || path.join(HOME, '.config', 'openvibe', 'containers-storage.conf')),
         engine: ['auto', 'podman', 'bwrap'].includes(raw.engine) ? raw.engine : 'auto',
         image: String(raw.image || 'docker.io/library/node:22-bookworm'),
-        concurrency: int(raw.concurrency, 1, 1, 4),
+        concurrency: int(raw.concurrency, 1, 1, 8),
+        // Installs kept between runs (runner/deps-cache.js) and the package managers' download caches. Both live on
+        // disk: the page cache keeps the busy ones in memory and gives it back when something else needs it.
+        depsCache: raw.depsCache === '' ? '' : expand(raw.depsCache || path.join(HOME, '.cache', 'openvibe-git-ci', 'deps')),
+        depsCacheMb: int(raw.depsCacheMb, 20480, 256, 1_048_576),
+        sharedCache: raw.sharedCache === '' ? '' : expand(raw.sharedCache || path.join(HOME, '.cache', 'openvibe-git-ci', 'shared')),
         // The verdict goes to GitHub through the workstation's gh login, so the pull request shows it beside
         // GitHub Actions. Off only when the owner says so; the forge status is written either way.
         githubStatus: raw.githubStatus !== false,
@@ -78,8 +86,8 @@ function loadConfig(env = process.env) {
     cfg.repos = Object.fromEntries(Object.entries(cfg.repos).map(([full, item]) => [
         String(full).toLowerCase(),
         {
-            install_command: String((item && item.install_command) || 'npm ci --no-audit --no-fund'),
-            test_command: String((item && item.test_command) || 'npm test'),
+            install_command: String((item && item.install_command) || 'auto'),
+            test_command: String((item && item.test_command) || 'auto'),
             timeout_seconds: int(item && item.timeout_seconds, 1800, 30, 3600),
             image: String((item && item.image) || cfg.image),
             cpus: int(item && item.cpus, 4, 1, 8),

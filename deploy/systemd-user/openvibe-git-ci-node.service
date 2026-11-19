@@ -1,0 +1,23 @@
+[Unit]
+Description=OpenVibe.Git forge CI runner (shared node; bubblewrap sandboxes, work in memory)
+Documentation=https://git.openvibe.codes/openvibers/openvibe-git/src/branch/main/docs/ci.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/ovci/runner
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=GIT_CI_CONFIG=/var/lib/ovci/.config/openvibe/git-ci.json
+ExecStart=/usr/bin/node /var/lib/ovci/runner/runner/index.js
+Restart=always
+RestartSec=10
+KillMode=control-group
+KillSignal=SIGTERM
+# SIGTERM kills the current runs' scopes; they report "the runner stopped" and the forge queues the next push.
+TimeoutStopSec=60
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target

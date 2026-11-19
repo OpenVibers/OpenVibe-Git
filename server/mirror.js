@@ -13,7 +13,8 @@
  */
 const { assertPublicUrl } = require('openvibe-shared/egress');
 
-function createMirrors({ store, repos, config, git, github, githubLinks = null, log = console }) {
+// lookup: a DNS lookup for the URL check (tests pass a stub, so they run with no network, as in the forge's sandbox).
+function createMirrors({ store, repos, config, git, github, githubLinks = null, log = console, lookup = null }) {
     const running = new Map();   // repo id → promise
 
     async function guardUrl(url) {
@@ -21,7 +22,7 @@ function createMirrors({ store, repos, config, git, github, githubLinks = null, 
         try { u = new URL(url); } catch { throw new Error('not a URL'); }
         if (u.protocol !== 'https:') throw new Error('a mirror URL is https');
         if (!['github.com', 'www.github.com'].includes(u.hostname)) throw new Error('a mirror is on github.com');
-        await assertPublicUrl(u);
+        await assertPublicUrl(u, lookup ? { lookup } : {});
         return u;
     }
 
