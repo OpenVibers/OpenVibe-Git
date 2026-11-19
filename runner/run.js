@@ -26,6 +26,16 @@ const git = (args, cwd, timeoutMs = 180_000) => new Promise((resolve, reject) =>
 });
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// test:pg's phase: the repository's own service script, local binaries (no Docker in the sandbox), then the suite.
+const TEST_PG_SCRIPT = [
+    'S=node_modules/openvibe-sdk/scripts/test-services.sh',
+    '[ -f "$S" ] || { echo "test:pg: no $S"; exit 98; }',
+    'export OV_TEST_SERVICES=local',
+    'ENVS=$(bash "$S" up) || { echo "test:pg: the services did not start"; exit 97; }',
+    'eval "$ENVS"',
+    'npm run test:pg',
+].join('\n');
+
 const size = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`);
 const words = (ms) => {
     const s = Math.max(0, Math.round(Number(ms) / 1000));
@@ -60,6 +70,16 @@ async function cloneAt({ dir, cloneUrl, sha, branch, log, attempts = 24, waitMs 
         }
     }
     throw new Error(`the pushed commit never reached the mirror: ${last ? last.message : sha}`);
+}
+
+/** Whether this run runs test:pg: the repository has the script, and testPg is 'all', or 'main' on its default branch. */
+function wantsTestPg(runDir, run, job, mode) {
+    if (!mode || mode === 'off') return false;
+    if (mode === 'main' && run.branch !== ((job.repo && job.repo.default_branch) || 'main')) return false;
+    try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(runDir, 'package.json'), 'utf8'));
+        return !!(pkg.scripts && pkg.scripts['test:pg']);
+    } catch { return false; }
 }
 
 function createRunner({ cfg, api, log = console, clock = Date.now }) {
@@ -267,7 +287,22 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             if (!state) {
                 const t1 = clock();
                 const test = await phase('test', installScript(commands.test, { proxy: false }), null);
-                const timing = `install ${words(installMs)}${fromCache ? ' from the cache' : ''}, tests ${words(clock() - t1)}`;
+                const testMs = clock() - t1;
+                // The suite again on PostgreSQL + PgBouncer + Valkey (the repository's test:pg), started inside the sandbox
+                // by its own openvibe-sdk test-services.sh from the host's packages: what PGlite cannot show (a pooled
+                // connection runs un-awaited work out of order). On the runs testPg says (main: after a merge).
+                let pgNote = '';
+                if (!superseded && !test.timedOut && test.code === 0 && wantsTestPg(runDir, run, job, cfg.testPg)) {
+                    const t2 = clock();
+                    const pg = await phase('test-pg', installScript(TEST_PG_SCRIPT, { proxy: false }), null);
+                    const pgMs = clock() - t2;
+                    if (pg.timedOut) problems.push(`test:pg timed out after ${words(pgMs)}`);
+                    else if (pg.code === 0) pgNote = `, test:pg ${words(pgMs)}`;
+                    else if (pg.code === 98) onData('test:pg: no openvibe-sdk test-services.sh in this checkout; skipped\n');
+                    else if (pg.code === 97) onData('test:pg: the local PostgreSQL, PgBouncer and Valkey did not start on this runner; not counted\n');
+                    else problems.push(`test:pg failed (exit ${pg.code})`);
+                }
+                const timing = `install ${words(installMs)}${fromCache ? ' from the cache' : ''}, tests ${words(testMs)}${pgNote}`;
                 if (superseded) state = 'superseded';
                 else if (test.timedOut) { state = 'timed_out'; description = `Timed out after ${words(totalMs)}`; }
                 else if (test.code === 0 && !problems.length) { state = 'success'; description = `Forge runner passed in ${words(clock() - started)} (${timing})`; }
@@ -311,4 +346,4 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
     return { engine, runJob, stop };
 }
 
-module.exports = { createRunner, cloneAt, RELAY };
+module.exports = { createRunner, cloneAt, RELAY, wantsTestPg, TEST_PG_SCRIPT };

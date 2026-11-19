@@ -157,6 +157,13 @@ repositories) to `ov-node-01` (8 cores, 15 GB):
   `high`, or `none`). Findings fail the run after the tests have run, and the description names them. gitleaks is
   the version and checksum security.yml pins, installed at /usr/local/bin by `node-setup.sh`.
 
+- **The suite on PostgreSQL too** (`testPg`, 2026-11-19): a repository's `test:pg` runs after its tests pass, with
+  PostgreSQL 18, PgBouncer and Valkey started inside the sandbox by its own `openvibe-sdk/scripts/test-services.sh`
+  from the host's packages (no Docker; each sandbox has its own loopback, so runs side by side do not share ports).
+  It catches what PGlite cannot (a pooled connection runs un-awaited work out of order). The shared node runs it on
+  the default branch, after a merge (`testPg: "main"`), so a pull request's verdict is not twice as slow; `all` runs it
+  everywhere once there are more machines. Services that do not start are reported, not counted.
+
 Each run's description says where the time went: `Forge runner passed in 2m 10s (install 3s from the cache, tests
 2m 4s)`.
 

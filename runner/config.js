@@ -74,6 +74,8 @@ function loadConfig(env = process.env) {
         testTimeoutScale: Math.min(10, Math.max(1, Number(raw.testTimeoutScale) || 1)),
         // GitHub's security workflow, in the run (runner/security.js): the secret scan and the dependency audit.
         secretScan: raw.secretScan !== false,
+        // The suite on PostgreSQL too (a repository's test:pg): 'off' (default), 'main' (after a merge) or 'all'.
+        testPg: ['off', 'main', 'all'].includes(raw.testPg) ? raw.testPg : 'off',
         audit: raw.audit !== false,
         // Host folders shown read-only in both phases (runner/sandbox.js safeRoBinds): the node shows /opt/google (Chrome).
         roBinds: Array.isArray(raw.roBinds) ? raw.roBinds.map(String).slice(0, 20) : [],
