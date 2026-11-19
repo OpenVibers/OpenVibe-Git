@@ -7,7 +7,7 @@
  * A run exists only for a push to a branch of an official (OpenVibers) repository, made by a person GitHub says
  * may push there — the push event's own pusher, checked against the repository's collaborators (10 minutes of
  * cache) and always against the owning account. A fork, a pull request from a fork, a tag, a bot and a non-member
- * are skipped; those keep GitHub Actions. One run per repository is live: a newer push supersedes the queued or
+ * are skipped; those keep GitHub Actions. One run per branch is live: a newer push supersedes the queued or
  * running one, and the runner sees that on its heartbeat and stops.
  *
  * The verdict is copied into git_commit_statuses as `forge/test` (the same intake the GitHub check-runs use), and
@@ -127,7 +127,7 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
         if (!conf) return { skipped: 'not-enabled' };
         const clean = cleanSha(sha);
         const ref = cleanBranch(branch);
-        const live = await store.maybe("SELECT * FROM git_ci_runs WHERE repo_id = ? AND state IN ('queued', 'running')", [row.id]);
+        const live = await store.maybe("SELECT * FROM git_ci_runs WHERE repo_id = ? AND branch = ? AND state IN ('queued', 'running')", [row.id, ref]);
         if (!force && live && live.sha === clean && live.branch === ref) {
             return { skipped: 'duplicate', run: rowToRun(live, { baseUrl: base(), owner: row.owner_username, name: row.name }) };
         }
@@ -140,8 +140,8 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
             ? await store.maybe("SELECT * FROM git_ci_runs WHERE repo_id = ? AND tree = ? AND state = 'success' ORDER BY finished_at DESC LIMIT 1", [row.id, tree])
             : null;
         await store.execute(
-            "UPDATE git_ci_runs SET state = 'superseded', description = ?, finished_at = now(), updated_at = now() WHERE repo_id = ? AND state IN ('queued', 'running')",
-            [`Superseded by ${clean.slice(0, 12)}`, row.id],
+            "UPDATE git_ci_runs SET state = 'superseded', description = ?, finished_at = now(), updated_at = now() WHERE repo_id = ? AND branch = ? AND state IN ('queued', 'running')",
+            [`Superseded by ${clean.slice(0, 12)}`, row.id, ref],
         );
         if (same) {
             const description = text(`Same files as ${same.sha.slice(0, 12)} (${same.branch}), which passed: ${same.description || 'passed'}`, 1000);
@@ -164,7 +164,7 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
             );
         } catch (err) {
             if (/duplicate key|unique/i.test(String(err.message))) {
-                const current = await store.maybe("SELECT * FROM git_ci_runs WHERE repo_id = ? AND state IN ('queued', 'running')", [row.id]);
+                const current = await store.maybe("SELECT * FROM git_ci_runs WHERE repo_id = ? AND branch = ? AND state IN ('queued', 'running')", [row.id, ref]);
                 return { skipped: 'duplicate', run: rowToRun(current, { baseUrl: base(), owner: row.owner_username, name: row.name }) };
             }
             throw err;
@@ -263,7 +263,10 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
     async function claim(runner = 'forge-runner') {
         const row = await store.maybe(
             `WITH next AS (
-                 SELECT id FROM git_ci_runs WHERE state = 'queued' ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
+                 SELECT r.id FROM git_ci_runs r JOIN git_repos g ON g.id = r.repo_id
+                 WHERE r.state = 'queued'
+                 ORDER BY (r.branch = COALESCE(g.default_branch, 'main')) ASC, r.created_at ASC
+                 LIMIT 1 FOR UPDATE OF r SKIP LOCKED
              )
              UPDATE git_ci_runs r SET state = 'running', started_at = now(), runner = ?, updated_at = now()
              FROM next WHERE r.id = next.id RETURNING r.*`,
