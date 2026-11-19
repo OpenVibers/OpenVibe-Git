@@ -24,7 +24,29 @@ const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml',
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare', 'preprepare', 'postprepare'];
 // The runner's own folders in a run's work directory, never part of what the repository installs.
 const RUNNER_DIRS = new Set(['.git', '.ci', '.home', '.cache', '.pnpm']);
-const KEY_VERSION = 1;
+const KEY_VERSION = 2;
+
+/**
+ * Every lockfile in the checkout, with its path: the root's, and each app's in a repository that installs per app
+ * (OpenVibe.Tools runs `npm run install:all`: its root lockfile alone said nothing about the apps' dependencies, so a
+ * changed app lockfile would have reused a stale install). node_modules and the runner's own folders are skipped.
+ */
+function lockfilesIn(dir, { maxDepth = 6 } = {}) {
+    const found = [];
+    const walk = (rel, depth) => {
+        let entries;
+        try { entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return; }
+        for (const e of entries) {
+            const child = rel ? `${rel}/${e.name}` : e.name;
+            if (e.isDirectory()) {
+                if (e.name === 'node_modules' || e.name === '.git' || (!rel && RUNNER_DIRS.has(e.name))) continue;
+                if (depth < maxDepth) walk(child, depth + 1);
+            } else if (LOCKFILES.includes(e.name)) found.push(child);
+        }
+    };
+    walk('', 0);
+    return found.sort();
+}
 
 function readJson(file) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
@@ -32,7 +54,7 @@ function readJson(file) {
 
 /** The cache key for a checkout, or null when it has no lockfile (an install without one is not reproducible). */
 function cacheKey({ dir, repo, install, image = '', engine = '', node = process.version }) {
-    const locks = LOCKFILES.filter((f) => fs.existsSync(path.join(dir, f)));
+    const locks = lockfilesIn(dir);
     if (!locks.length) return null;
     const pkg = readJson(path.join(dir, 'package.json')) || {};
     const scripts = Object.fromEntries(INSTALL_SCRIPTS.filter((s) => pkg.scripts && pkg.scripts[s]).map((s) => [s, pkg.scripts[s]]));
@@ -202,4 +224,4 @@ function autoCommands(dir) {
     return { install, test: 'npm test' };
 }
 
-module.exports = { createDepsCache, cacheKey, survey, installed, autoCommands, LOCKFILES };
+module.exports = { createDepsCache, cacheKey, survey, installed, autoCommands, lockfilesIn, LOCKFILES };
