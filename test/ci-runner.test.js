@@ -130,7 +130,10 @@ const { hashToken, parseHash, createCiAuth } = require('../server/ci-auth');
         // GitHub's runners have neither, so the test says why it skipped instead of failing there.
         let engine = null;
         try { engine = detectEngine('auto'); } catch { engine = null; }
-        if (!engine) {
+        // Inside the forge's own sandbox (the test phase says OV_SANDBOX_OFFLINE=1) a sandbox cannot start another.
+        if (process.env.OV_SANDBOX_OFFLINE === '1') {
+            console.log('ci-runner: inside the forge sandbox; the nested end-to-end run is skipped');
+        } else if (!engine) {
             console.log('ci-runner: no sandbox engine here; the end-to-end run is skipped');
         } else {
             const image = 'docker.io/library/node:22-bookworm';

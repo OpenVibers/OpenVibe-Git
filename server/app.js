@@ -61,7 +61,7 @@ function createApp(opts = {}) {
         const repos = opts.repos || createRepos({ store: s, config, git, github, insights, log });
         // GitHub, linked once (plan §AD.10 step 3): a person's token for push mirrors that have none of their own.
         const githubLinks = opts.githubLinks || require('./github-links').createGithubLinks({ store: s, config, fetchImpl });
-        const mirrors = opts.mirrors || createMirrors({ store: s, repos, config, git, github, githubLinks, log });
+        const mirrors = opts.mirrors || createMirrors({ store: s, repos, config, git, github, githubLinks, log, lookup: opts.lookup });
         const official = opts.official || createOfficialMirrors({ store: s, repos, config, github, log });
         const sso = opts.sso || createSsoClient({
             site: 'git', baseUrl: config.baseUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret,
