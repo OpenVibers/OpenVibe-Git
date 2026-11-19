@@ -27,7 +27,7 @@ function createApi({ baseUrl, token, log = console }) {
     return {
         request,
         register: (repos) => request('/api/v1/ci/repos', { method: 'POST', body: { repos } }),
-        claim: () => request('/api/v1/ci/runs/claim', { method: 'POST', body: { runner: os.hostname() || 'forge-runner' } }),
+        claim: (name) => request('/api/v1/ci/runs/claim', { method: 'POST', body: { runner: String(name || os.hostname() || 'forge-runner').slice(0, 100) } }),
         heartbeat: (id) => request(`/api/v1/ci/runs/${encodeURIComponent(id)}/heartbeat`),
         log: (id, chunk) => request(`/api/v1/ci/runs/${encodeURIComponent(id)}/log`, { method: 'POST', body: { chunk }, timeoutMs: 30_000 }),
         finish: async (id, verdict) => {

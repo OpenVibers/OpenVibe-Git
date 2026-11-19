@@ -57,6 +57,15 @@ function detectEngine(preferred = 'auto') {
 // pin-drift reads GitHub's tags) can check what it still can offline instead of failing the run. GitHub Actions has the
 // network and runs the whole check.
 const phaseEnv = (proxySock) => (proxySock ? {} : { OV_SANDBOX_OFFLINE: '1' });
+// The install phase's package-manager caches, shared between runs (mounted at /cache, install phase only): a pin bump
+// changes every lockfile, and the tarballs it did not change come from here. npm and pnpm check every tarball against
+// the lockfile's integrity, so a run cannot hand another a different package.
+const SHARED_CACHE = '/cache';
+const cacheEnv = (sharedCache) => (sharedCache ? {
+    npm_config_cache: `${SHARED_CACHE}/npm`,
+    npm_config_store_dir: `${SHARED_CACHE}/pnpm-store`,
+    npm_config_prefer_offline: 'true',
+} : {});
 const envList = (extra = {}) => ({
     HOME: '/workspace/.home',
     TMPDIR: '/tmp',
@@ -87,6 +96,8 @@ trap 'kill "$relay" 2>/dev/null || true' EXIT
 export http_proxy=http://127.0.0.1:3128 https_proxy=http://127.0.0.1:3128
 export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
 export npm_config_proxy="$http_proxy" npm_config_https_proxy="$https_proxy"
+# Node's own fetch (a postinstall that downloads a prebuilt binary) uses the proxy too (Node 22.21 and later).
+export NODE_USE_ENV_PROXY=1
 ` : ''}mkdir -p /workspace/.pnpm/bin
 export PATH=/workspace/.pnpm/bin:$PATH
 cd /workspace
@@ -97,7 +108,7 @@ ${command}
 /**
  * The podman command line for one phase. proxySock is null for the test phase (no network at all).
  */
-function podmanArgs({ name, workspace, image, limits, proxySock = null, script }) {
+function podmanArgs({ name, workspace, image, limits, proxySock = null, sharedCache = null, script }) {
     const args = [
         'run', '--rm', '--name', name, '--pull=never', '--network=none',
         '--cpus', String(limits.cpus), '--memory', `${limits.memory_mb}m`, '--memory-swap', `${limits.memory_mb}m`,
@@ -107,8 +118,10 @@ function podmanArgs({ name, workspace, image, limits, proxySock = null, script }
         '-v', `${workspace}:/workspace:rw`,
         '--stop-timeout', '5',
     ];
-    for (const [key, value] of Object.entries(envList(phaseEnv(proxySock)))) args.push('-e', `${key}=${value}`);
+    const shared = proxySock ? sharedCache : null;
+    for (const [key, value] of Object.entries(envList({ ...phaseEnv(proxySock), ...cacheEnv(shared) }))) args.push('-e', `${key}=${value}`);
     if (proxySock) args.push('-v', `${proxySock}:/run/ci-proxy.sock:rw`);
+    if (shared) args.push('-v', `${shared}:${SHARED_CACHE}:rw`);
     args.push(image, '/bin/sh', '-c', script);
     return args;
 }
@@ -137,7 +150,7 @@ function bwrapEtc(workspace) {
  * The bubblewrap command line for one phase (no systemd scope here; the caller wraps it). Node is bound from
  * the running runner's own installation, because a workstation's Node is rarely in /usr.
  */
-function bwrapArgs({ workspace, limits, proxySock = null, script }) {
+function bwrapArgs({ workspace, limits, proxySock = null, sharedCache = null, script }) {
     const node = fs.realpathSync(process.execPath);
     const prefix = path.dirname(path.dirname(node));
     const nodeInside = path.join('/opt/node', path.relative(prefix, node));
@@ -148,7 +161,8 @@ function bwrapArgs({ workspace, limits, proxySock = null, script }) {
         '--disable-userns', '--die-with-parent', '--new-session', '--cap-drop', 'ALL', '--clearenv',
         '--uid', String(UID), '--gid', String(GID), '--hostname', 'ci',
     ];
-    for (const [key, value] of Object.entries({ ...envList(phaseEnv(proxySock)), PATH: `${nodeBin}:/usr/local/bin:/usr/bin:/bin` })) {
+    const shared = proxySock ? sharedCache : null;
+    for (const [key, value] of Object.entries({ ...envList({ ...phaseEnv(proxySock), ...cacheEnv(shared) }), PATH: `${nodeBin}:/usr/local/bin:/usr/bin:/bin` })) {
         args.push('--setenv', key, value);
     }
     args.push('--ro-bind', '/usr', '/usr');
@@ -173,6 +187,7 @@ function bwrapArgs({ workspace, limits, proxySock = null, script }) {
     args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--perms', '1777', '--tmpfs', '/run');
     args.push('--bind', workspace, '/workspace');
     if (proxySock) args.push('--bind', proxySock, '/run/ci-proxy.sock');
+    if (shared) args.push('--bind', shared, SHARED_CACHE);
     args.push('--remount-ro', '/', '--chdir', '/workspace', '--', '/bin/sh', '-c', script);
     return { args, nodeInside };
 }
@@ -202,5 +217,5 @@ function scopeCleanup(unit) {
 }
 
 module.exports = {
-    detectEngine, podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, envList, UID, GID, RELAY,
+    detectEngine, podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, envList, cacheEnv, UID, GID, RELAY, SHARED_CACHE,
 };

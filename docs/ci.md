@@ -1,7 +1,7 @@
 # Forge CI
 
-`git.openvibe.codes` runs the tests for a push to an OpenVibers repository on the workstation, in a sandbox, and
-reports the verdict on the commit. GitHub Actions stays exactly as it is: this is the first-party path that runs
+`git.openvibe.codes` runs the tests for a push to an OpenVibers repository on the shared node (since 2026-11-19;
+it was the workstation), in a sandbox, and reports the verdict on the commit. GitHub Actions stays exactly as it is: this is the first-party path that runs
 beside it, not a replacement yet. Nothing in this document turns a GitHub workflow off.
 
 ## What runs, and when
@@ -74,7 +74,7 @@ reason.
 | network | install: loopback only, with the proxy on a Unix socket (the sandbox has no route anywhere else). test: no network namespace route at all |
 | limits | `--cpus 4`, `--memory 6144m` (swap the same), `--pids-limit 2048`, 30 minutes wall clock (configurable 30 s–1 h). A run past it is killed and reported `timed_out`; a runner that disappears is reaped by the service a minute after its limit |
 | capabilities | all dropped, `no-new-privileges`, a new session; bubblewrap also disables nested user namespaces |
-| concurrency | one run per repository (the forge's rule), and one at a time on this runner by default (`concurrency`) |
+| concurrency | one run per repository (the forge's rule); `concurrency` runs at once per runner (1 by default, 3 on the shared node, at most 8) |
 
 **What is not contained, and why.** A container is not a virtual machine: a kernel or runtime escape is still a
 host compromise, and the workstation is the busiest machine in the estate (it also runs the portal and agent jobs).
@@ -108,6 +108,53 @@ the gate. If the machine is ever dedicated to CI, a disposable VM per run is the
    The run appears at `https://git.openvibe.codes/openvibers/<name>/ci`.
 
 Removing an entry stops new runs; it does not delete past runs or their statuses.
+
+## Running it on the shared node (2026-11-19)
+
+The owner: "handle CI with our own system interconnected with git.openvibe.codes … modular, optimized, efficient …
+using the shared node and making use of the RAM". The runner moved from the workstation (one run at a time, four
+repositories) to `ov-node-01` (8 cores, 15 GB):
+
+- **Every repository with tests.** All 68 official repositories with a `package.json` and a test script are
+  registered with `auto` commands: the checkout decides (`pnpm-lock.yaml` → `pnpm install --frozen-lockfile`, an npm
+  lockfile → `npm ci`, a `package.json` alone → `npm install`; then `npm test`). A repository with no test script
+  reports "Nothing to test here" instead of failing. A repository that needs more names its commands (Live skips
+  onnxruntime's CUDA download; Games runs typecheck and lint like its workflow).
+- **Three runs at once** (`concurrency`, up to 8). The forge keeps one live run per repository, so they are always
+  different repositories. Each worker claims as `<host>/<n>`.
+- **Work in memory.** The work directories are a tmpfs (`/var/lib/ovci/work`, 8 GB at most): an install's tens of
+  thousands of files never touch the disk, and a run's directory is gone when it ends.
+- **Installs kept per lockfile** (`runner/deps-cache.js`). After an install phase succeeds, what it made (every
+  `node_modules` outside another one, and any file it wrote outside them) is kept, keyed by the repository, its
+  lockfile(s), the root `package.json`'s install scripts and package manager, the install command, the image, the
+  engine and the runner's Node. A later run with the same key copies it back and has **no install phase**; most
+  pushes change code, not the lockfile. The copy is taken before any test runs, so no test can change what a later
+  run gets. The store is on disk (`depsCache`, 40 GB at most, least recently used first): the page cache keeps the
+  busy entries in memory and gives it back when the node needs it.
+- **Download caches shared.** npm's and pnpm's caches (`sharedCache`) are mounted at `/cache` in the install phase
+  only, so a pin bump (every lockfile changes) still downloads only what changed. npm and pnpm check each tarball
+  against the lockfile's integrity, so one run cannot hand another a different package. The test phase never sees it.
+- **Node's own fetch uses the proxy** (`NODE_USE_ENV_PROXY=1`, Node 22.21 and later): a postinstall that downloads a
+  prebuilt binary (mediasoup's worker) works through the same allowlist, which on the node also has `github.com`,
+  `objects.githubusercontent.com` and `release-assets.githubusercontent.com`.
+- **The verdict** is the forge's `forge/test` status; the node has no GitHub login, so it does not post to GitHub
+  (`"githubStatus": false`). The ship scripts read the forge's verdict directly.
+
+Each run's description says where the time went: `Forge runner passed in 2m 10s (install 3s from the cache, tests
+2m 4s)`.
+
+```sh
+# on the node, from a checkout of OpenVibe.Git (or scp the script): root, idempotent
+sudo deploy/ci/node-setup.sh <git ref>
+# then, once: the runner token (0600) and git-ci.json into /var/lib/ovci/.config/openvibe, and run it again
+sudo -u ovci XDG_RUNTIME_DIR=/run/user/$(id -u ovci) journalctl --user -u openvibe-git-ci -f
+```
+
+`node-setup.sh` makes the `ovci` system user (its own systemd user manager, so the runs' cgroup scopes have their
+memory and CPU caps), the tmpfs mount unit, the cache folders, pnpm in `/usr`, and a root-owned checkout of this
+repository at `/var/lib/ovci/runner` (the runner reads it and cannot change it), then installs
+`deploy/systemd-user/openvibe-git-ci-node.service` and restarts it. Updating the runner is the same command with the
+new ref.
 
 ## Running it on the workstation
 

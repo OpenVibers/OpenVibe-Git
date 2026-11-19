@@ -13,6 +13,7 @@ const { createProxy } = require('./proxy');
 const { runProcess } = require('./process');
 const { podmanArgs, bwrapArgs, bwrapScope, installScript, podmanCleanup, scopeCleanup, detectEngine, RELAY } = require('./sandbox');
 const { reportGithubStatus } = require('./github-status');
+const { createDepsCache, cacheKey, survey, installed, autoCommands } = require('./deps-cache');
 
 
 
@@ -24,6 +25,7 @@ const git = (args, cwd, timeoutMs = 180_000) => new Promise((resolve, reject) =>
 });
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const size = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`);
 const words = (ms) => {
     const s = Math.max(0, Math.round(Number(ms) / 1000));
     return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
@@ -77,7 +79,10 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
         if (image.error || image.status !== 0) say(`[git-ci-runner] image ${cfg.image} is not in ${cfg.podmanRoot}; run deploy/ci/install.sh`);
     }
     say(`[git-ci-runner] sandbox: ${engine.why}; ${Object.keys(cfg.repos).length} repositories configured`);
-    let activeKill = null;
+    const deps = cfg.depsCache ? createDepsCache({ root: cfg.depsCache, maxMb: cfg.depsCacheMb, log: say }) : null;
+    if (cfg.sharedCache) for (const sub of ['npm', 'pnpm-store']) fs.mkdirSync(path.join(cfg.sharedCache, sub), { recursive: true, mode: 0o700 });
+    // Every phase running now, across the runs this runner holds at once: stop() ends them all.
+    const activeKills = new Set();
     let stopping = false;
 
     async function runJob(job) {
@@ -136,11 +141,11 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             if (engine.kind === 'podman') {
                 return {
                     command: 'podman',
-                    args: [...rootArgs, ...podmanArgs({ name, workspace: runDir, image: job.image, limits, proxySock, script: command })],
+                    args: [...rootArgs, ...podmanArgs({ name, workspace: runDir, image: job.image, limits, proxySock, sharedCache: cfg.sharedCache || null, script: command })],
                     kill: () => podmanCleanup(name, rootArgs),
                 };
             }
-            const wrapped = bwrapScope({ name, limits, args: bwrapArgs({ workspace: runDir, limits, proxySock, script: command }).args });
+            const wrapped = bwrapScope({ name, limits, args: bwrapArgs({ workspace: runDir, limits, proxySock, sharedCache: cfg.sharedCache || null, script: command }).args });
             return { command: wrapped.command, args: wrapped.args, kill: () => scopeCleanup(wrapped.killUnit) };
         };
 
@@ -149,13 +154,16 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             if (left < 5000) return { timedOut: true, code: null, skipped: true };
             const box = sandbox(label, script, proxySock);
             say(`[git-ci-runner] ${run.id} ${label}`);
-            activeKill = () => box.kill();
+            const kill = () => box.kill();
+            activeKills.add(kill);
+            currentKill = kill;
             const res = await runProcess({
                 command: box.command, args: box.args, env: sandboxEnv, timeoutMs: left,
                 onData,
                 onKill: () => { box.kill(); },
             });
-            activeKill = null;
+            activeKills.delete(kill);
+            currentKill = null;
             await flush(true);
             return res;
         };
@@ -167,20 +175,63 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
             say(`[git-ci-runner] ${run.id} ${job.repo.full_name} ${run.branch} ${run.sha.slice(0, 12)}`);
             await cloneAt({ dir: runDir, cloneUrl: job.repo.clone_url, sha: run.sha, branch: run.branch, log: (line) => onData(`${line}\n`) });
 
-            proxy = createProxy({ allow: cfg.proxyAllow, log: { warn: (line) => onData(`${line}\n`) } });
-            const socket = path.join(runDir, '.ci', 'proxy.sock');
-            await proxy.listen(socket);
-            const install = await phase('install', installScript(job.command.install), socket);
-            if (superseded) { state = 'superseded'; } else if (install.timedOut) {
-                state = 'timed_out'; description = `Timed out installing dependencies after ${words(totalMs)}`;
-            } else if (install.code !== 0) {
-                state = 'failure'; exitCode = install.code; description = `Dependency install failed (exit ${install.code})`;
-            } else {
-                const test = await phase('test', installScript(job.command.test, { proxy: false }), null);
+            // `auto` (a repository registered without commands): the checkout says how it installs and tests.
+            const commands = { install: job.command.install, test: job.command.test };
+            if (commands.install === 'auto' || commands.test === 'auto') {
+                const auto = autoCommands(runDir);
+                if (auto.none) {
+                    state = 'success';
+                    description = `Nothing to test here (${auto.none})`;
+                    onData(`${description}\n`);
+                } else {
+                    if (commands.install === 'auto') commands.install = auto.install;
+                    if (commands.test === 'auto') commands.test = auto.test;
+                    onData(`install: ${commands.install}\ntest: ${commands.test}\n`);
+                }
+            }
+
+            let installMs = 0;
+            let fromCache = false;
+            if (!state) {
+                // The same lockfile as an earlier run: its install comes back from the runner's cache, no install phase.
+                const key = deps ? cacheKey({ dir: runDir, repo: job.repo.full_name, install: commands.install, image: job.image, engine: engine.kind }) : null;
+                let restored = null;
+                if (key) {
+                    try { restored = await deps.restore(key, runDir); } catch (err) { onData(`the kept install could not be restored (${err.message}); installing\n`); }
+                }
+                if (restored) {
+                    fromCache = true;
+                    installMs = restored.ms;
+                    onData(`dependencies: from the runner's cache (${size(restored.bytes)}, saved ${restored.saved_at}) in ${words(restored.ms) === '0s' ? `${restored.ms} ms` : words(restored.ms)}; no install phase\n`);
+                } else {
+                    const before = key ? survey(runDir) : null;
+                    proxy = createProxy({ allow: cfg.proxyAllow, log: { warn: (line) => onData(`${line}\n`) } });
+                    const socket = path.join(runDir, '.ci', 'proxy.sock');
+                    await proxy.listen(socket);
+                    const t0 = clock();
+                    const install = await phase('install', installScript(commands.install), socket);
+                    installMs = clock() - t0;
+                    await proxy.close().catch(() => {});
+                    proxy = null;
+                    if (superseded) { state = 'superseded'; } else if (install.timedOut) {
+                        state = 'timed_out'; description = `Timed out installing dependencies after ${words(totalMs)}`;
+                    } else if (install.code !== 0) {
+                        state = 'failure'; exitCode = install.code; description = `Dependency install failed (exit ${install.code})`;
+                    } else if (key) {
+                        // Kept before any test runs, so no test can change what a later run gets.
+                        const kept = await deps.save(key, runDir, installed(before, survey(runDir)));
+                        if (kept) onData(`dependencies: kept for later runs with this lockfile (${size(kept.bytes)}, ${words(kept.ms)})\n`);
+                    }
+                }
+            }
+            if (!state) {
+                const t1 = clock();
+                const test = await phase('test', installScript(commands.test, { proxy: false }), null);
+                const timing = `install ${words(installMs)}${fromCache ? ' from the cache' : ''}, tests ${words(clock() - t1)}`;
                 if (superseded) state = 'superseded';
                 else if (test.timedOut) { state = 'timed_out'; description = `Timed out after ${words(totalMs)}`; }
-                else if (test.code === 0) { state = 'success'; description = `Forge runner passed in ${words(clock() - started)}`; }
-                else { state = 'failure'; exitCode = test.code; description = `Forge runner failed (exit ${test.code}) in ${words(clock() - started)}`; }
+                else if (test.code === 0) { state = 'success'; description = `Forge runner passed in ${words(clock() - started)} (${timing})`; }
+                else { state = 'failure'; exitCode = test.code; description = `Forge runner failed (exit ${test.code}) in ${words(clock() - started)} (${timing})`; }
             }
         } catch (err) {
             if (superseded) state = 'superseded';
@@ -213,7 +264,7 @@ function createRunner({ cfg, api, log = console, clock = Date.now }) {
 
     function stop() {
         stopping = true;
-        if (activeKill) { try { activeKill(); } catch { /* gone */ } }
+        for (const kill of activeKills) { try { kill(); } catch { /* gone */ } }
     }
 
     return { engine, runJob, stop };
