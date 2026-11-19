@@ -40,6 +40,18 @@ const write = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: tr
         assert.notStrictEqual(k2, k1, 'an install script is in the key');
         write(path.join(a, 'package-lock.json'), '{"lockfileVersion":3,"packages":{"x":{}}}');
         assert.notStrictEqual(cacheKey(base), k2, 'the lockfile is in the key');
+        // An app's own lockfile (a repository that installs per app) is in the key too; node_modules' are not.
+        const k3 = cacheKey(base);
+        write(path.join(a, 'apps', 'web', 'package-lock.json'), '{"lockfileVersion":3}');
+        const k4 = cacheKey(base);
+        assert.notStrictEqual(k4, k3, 'an app lockfile is in the key');
+        write(path.join(a, 'apps', 'web', 'package-lock.json'), '{"lockfileVersion":3,"packages":{"y":{}}}');
+        assert.notStrictEqual(cacheKey(base), k4, 'and a change to it changes the key');
+        write(path.join(a, 'node_modules', 'dep', 'package-lock.json'), '{}');
+        const { lockfilesIn } = require('../runner/deps-cache');
+        assert.deepStrictEqual(lockfilesIn(a), ['apps/web/package-lock.json', 'package-lock.json'], 'never one inside node_modules');
+        fs.rmSync(path.join(a, 'apps'), { recursive: true, force: true });
+        fs.rmSync(path.join(a, 'node_modules'), { recursive: true, force: true });
 
         // ── What an install made ──
         write(path.join(a, 'src', 'index.js'), 'module.exports = 1;\n');
