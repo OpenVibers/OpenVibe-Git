@@ -282,6 +282,12 @@ function createApi(ctx) {
         } catch (err) { return fail(req, res, err); }
     }));
 
+    // Every public repository's runs: now, queued, latest, and the last day's numbers (the /ci page's data).
+    r.get('/ci/board', h(async (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        return res.json(await ci.board({ limit: req.query.limit }));
+    }));
+
     r.post('/ci/runs/claim', h(async (req, res) => {
         if (!runnerOnly(req, res)) return undefined;
         const job = await ci.claim((req.body && req.body.runner) || 'forge-runner');

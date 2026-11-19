@@ -342,6 +342,45 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
         return rows.map((r) => rowToRun(r, { baseUrl: base(), owner: row.owner_username, name: row.name }));
     }
 
+    /**
+     * Every public repository's runs in one place (/ci, 2026-11-19): what runs now and on which runner, the queue, the
+     * latest verdicts and the last day's numbers (runs, passed, median time, installs that came from the cache).
+     */
+    async function board({ limit = 60 } = {}) {
+        const n = Math.max(1, Math.min(200, Number(limit) || 60));
+        const cols = 'r.id, r.repo_id, r.sha, r.branch, r.pusher, r.source, r.state, r.description, r.exit_code, r.log_bytes, r.runner, r.started_at, r.finished_at, r.duration_ms, r.created_at, g.owner_username, g.name';
+        const live = await store.many(
+            `SELECT ${cols} FROM git_ci_runs r JOIN git_repos g ON g.id = r.repo_id
+             WHERE r.state IN ('queued', 'running') AND g.visibility = 'public' ORDER BY r.created_at ASC LIMIT 200`, [],
+        );
+        const recent = await store.many(
+            `SELECT ${cols} FROM git_ci_runs r JOIN git_repos g ON g.id = r.repo_id
+             WHERE r.state NOT IN ('queued', 'running') AND g.visibility = 'public' ORDER BY COALESCE(r.finished_at, r.created_at) DESC LIMIT ?`, [n],
+        );
+        const day = await store.many(
+            `SELECT r.state, r.duration_ms, r.description FROM git_ci_runs r JOIN git_repos g ON g.id = r.repo_id
+             WHERE r.created_at > now() - interval '1 day' AND g.visibility = 'public' AND r.state NOT IN ('queued', 'running', 'superseded')`, [],
+        );
+        const map = (row) => rowToRun(row, { baseUrl: base(), owner: row.owner_username, name: row.name });
+        const verdicts = day.filter((r) => ['success', 'failure', 'timed_out'].includes(r.state));
+        const passed = verdicts.filter((r) => r.state === 'success');
+        const times = passed.map((r) => Number(r.duration_ms)).filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+        const installed = day.filter((r) => /\(install /.test(r.description || ''));
+        return {
+            running: live.filter((r) => r.state === 'running').map(map),
+            queued: live.filter((r) => r.state === 'queued').map(map),
+            recent: recent.map(map),
+            day: {
+                runs: day.length,
+                verdicts: verdicts.length,
+                passed: passed.length,
+                median_ms: times.length ? times[Math.floor(times.length / 2)] : null,
+                from_cache: installed.filter((r) => /from the cache/.test(r.description || '')).length,
+                installs: installed.length,
+            },
+        };
+    }
+
     async function runFor(row, id) {
         const run = await store.maybe('SELECT * FROM git_ci_runs WHERE id = ? AND repo_id = ?', [text(id, 100), row.id]);
         return rowToRun(run, { baseUrl: base(), owner: row.owner_username, name: row.name, log: true });
@@ -361,7 +400,7 @@ function createCi({ config, store, checks, git, github, repos, log = console, cl
     function stop() { if (timer) clearInterval(timer); timer = null; }
 
     return {
-        onGithubPush, onForgePush, registerRepos, manual, enqueue, claim, heartbeat, appendLog, finish, reap,
+        onGithubPush, onForgePush, registerRepos, manual, enqueue, claim, heartbeat, appendLog, finish, reap, board,
         runsFor, runFor, configFor, settingsFor, enabledFor, member, rowToRun, start, stop,
         STATES, CONTEXT, SHA_RE, BRANCH_RE,
     };

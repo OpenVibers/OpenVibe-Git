@@ -105,6 +105,17 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
         assert.equal(apiRun.json().log, 'installing…\n47 tests passed\n');
         assert.equal((await t.get(`/api/v1/ci/runs/${job.run.id}/status`, { bearer: TOKEN, json: { state: 'failure' } })).status, 409, 'a finished run cannot be changed');
 
+        // The board: every public repository's runs in one place, the finished one among the latest.
+        const board = (await t.get('/api/v1/ci/board')).json();
+        assert.ok(board.recent.some((r) => r.id === job.run.id && r.state === 'success' && r.repo === 'openvibers/live'), 'the verdict is on the board');
+        assert.ok(Array.isArray(board.running) && Array.isArray(board.queued));
+        assert.ok(board.day.verdicts >= 1 && board.day.passed >= 1);
+        assert.ok(!('log' in board.recent[0]), 'no logs on the board');
+        const boardPage = await t.get('/ci');
+        assert.equal(boardPage.status, 200);
+        assert.match(boardPage.text, new RegExp(`/openvibers/live/ci/${job.run.id}`), 'the page links the run');
+        assert.match(boardPage.text, /Forge runner passed in 9s/);
+
         // The collaborator's queued run is drained too, so the next queue is the supersede case alone.
         const friendClaim = (await t.get('/api/v1/ci/runs/claim', { bearer: TOKEN, json: {} })).json();
         assert.equal(friendClaim.run.id, friendRun.run.id);
