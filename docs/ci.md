@@ -24,7 +24,8 @@ the forge as its target. The GitHub post is best effort: a missing `gh` login, a
 forge-only push) or a GitHub outage is logged, and the forge status stays final either way. `"githubStatus": false`
 in `git-ci.json` turns the GitHub copy off.
 
-**One run per repository is live.** A newer branch push supersedes the queued or running one: the older run becomes
+**One run per branch is live** (per repository until 2026-11-19, when two open pull requests in one repository kept
+superseding each other). A newer push to a branch supersedes that branch's queued or running run: the older run becomes
 `superseded`, its runner sees that on the next heartbeat (every 15 s), kills its sandbox and reports no verdict.
 The newer run then starts. The repository's `forge/test` status is pending from enqueue, and success, failure or
 error when the runner reports; a timed-out run is a failure.
@@ -74,7 +75,7 @@ reason.
 | network | install: loopback only, with the proxy on a Unix socket (the sandbox has no route anywhere else). test: no network namespace route at all |
 | limits | `--cpus 4`, `--memory 6144m` (swap the same), `--pids-limit 2048`, 30 minutes wall clock (configurable 30 s–1 h). A run past it is killed and reported `timed_out`; a runner that disappears is reaped by the service a minute after its limit |
 | capabilities | all dropped, `no-new-privileges`, a new session; bubblewrap also disables nested user namespaces |
-| concurrency | one run per repository (the forge's rule); `concurrency` runs at once per runner (1 by default, 3 on the shared node, at most 8) |
+| concurrency | one live run per branch (the forge's rule); `concurrency` runs at once per runner (1 by default, 2 on the shared node, at most 8). Pull request branches are claimed before default-branch checks, oldest first within each |
 
 **What is not contained, and why.** A container is not a virtual machine: a kernel or runtime escape is still a
 host compromise, and the workstation is the busiest machine in the estate (it also runs the portal and agent jobs).
@@ -206,7 +207,7 @@ because there is no install cache on GitHub and no queue here.
 ## The service side
 
 - `migrations/0008_ci_runs.sql` — `git_ci_repos` (enabled, commands, image, limits) and `git_ci_runs` (state, log,
-  timings), with a partial unique index that keeps one live run per repository.
+  timings), with a partial unique index that keeps one live run per branch (`0013_ci_live_per_branch`).
 - `server/ci.js` — the member rule, enqueue and supersede, claim/heartbeat/log/finish, the reaper and the
   `forge/test` status on the forge.
 - `server/ci-auth.js` — the runner token's scrypt hash and the constant-time check.

@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Forge CI: a branch push by a repository's own writer queues a run; a non-member, a fork and a pull request do
- * not. One run per repository, the newer push supersedes the older. The runner claims, writes a log, reports a
+ * not. One live run per branch, the newer push supersedes the older; pull request branches are claimed first. The runner claims, writes a log, reports a
  * verdict and that verdict is the commit status. A run left running past its limit is reaped and reported red.
  */
 const assert = require('assert');
@@ -155,6 +155,23 @@ const ok = (body, status = 200) => ({ ok: status >= 200 && status < 300, status,
         const reapedStatus = await t.get(`/api/v1/repos/openvibers/live2/commits/${nextHead.sha}/statuses`);
         assert.equal(reapedStatus.json().statuses[0].state, 'failure');
         assert.match(reapedStatus.json().statuses[0].description, /timed out after 1 minutes/);
+
+        // One live run per branch, and a pull request's branch is claimed before a check of main: a push to main, then
+        // one to a feature branch; the feature branch is claimed first and main's run is not superseded by it.
+        const author = { name: 'OpenVibers', email: 'contact@openvibe.network' };
+        const mainHead = await t.ctx.git.commitFiles('openvibers', 'live2', { branch: 'main', base: 'main', message: 'Main again', files: [{ path: 'm.txt', content: 'm\n' }], author });
+        const mainRun = await t.ctx.ci.onGithubPush(live2.row, push(mainHead.sha, 'OpenVibers', live2.full));
+        const featureHead = await t.ctx.git.commitFiles('openvibers', 'live2', { branch: 'feature', base: 'main', message: 'A feature', files: [{ path: 'f.txt', content: 'f\n' }], author });
+        const featureRun = await t.ctx.ci.onGithubPush(live2.row, { ...push(featureHead.sha, 'OpenVibers', live2.full), ref: 'refs/heads/feature' });
+        assert.equal(featureRun.run.state, 'queued');
+        assert.equal((await t.ctx.ci.runFor(live2.row, mainRun.run.id)).state, 'queued', 'a push to another branch leaves main\'s run alone');
+        const claimedFeature = (await t.get('/api/v1/ci/runs/claim', { bearer: TOKEN, json: {} })).json();
+        assert.equal(claimedFeature.run.id, featureRun.run.id, 'the pull request branch first, though main was queued earlier');
+        const claimedMain = (await t.get('/api/v1/ci/runs/claim', { bearer: TOKEN, json: {} })).json();
+        assert.equal(claimedMain.run.id, mainRun.run.id);
+        for (const id of [claimedFeature.run.id, claimedMain.run.id]) {
+            assert.equal((await t.get(`/api/v1/ci/runs/${id}/status`, { bearer: TOKEN, json: { state: 'success' } })).status, 200);
+        }
 
         // A push that lands on the forge itself: the network's own service token may run it, a person's token
         // may not (the forge knows an OpenVibe account, not the GitHub login the member rule is about).
