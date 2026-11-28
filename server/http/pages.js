@@ -531,8 +531,32 @@ function createPageRoutes(ctx) {
             'Every page is server-rendered. A public repository is readable at /<owner>/<name>; its files at /<owner>/<name>/tree and /<owner>/<name>/blob (ref and path are query parameters); a ref as a tarball at /<owner>/<name>/archive/<ref>.tar.gz. The API is /api/v1/repos.', '',
             '## Official repositories', '',
             ...official.map((o) => `- [${o.full_name}](${config.baseUrl.replace(/\/+$/, '')}/${o.full_name}): ${o.description || 'The OpenVibe projects.'}`), '',
+            '## Optional', '', `- [Full text (llms-full.txt)](${config.baseUrl.replace(/\/+$/, '')}/llms-full.txt): each official repository's README`, '',
         ];
         res.type('text/plain').send(lines.join('\n'));
+    }));
+    // The full text for language models (SEO-33): the llms.txt header, then each official repository's README as it is
+    // written (the first 6,000 characters), held an hour (11-28: /llms-full.txt was a 404 to agents, llms-check.js).
+    let llmsFull = null;
+    r.get('/llms-full.txt', h(async (_req, res) => {
+        if (!llmsFull || Date.now() - llmsFull.at > 3600e3) {
+            const base = config.baseUrl.replace(/\/+$/, '');
+            const parts = ['# OpenVibe Git', '', '> Git for OpenVibe: host code with your OpenVibe account, browse it, mirror GitHub, and clone it to your computer with Link.', ''];
+            for (const o of await repos.official()) {
+                const [owner, name] = String(o.full_name).split('/');
+                const ref = o.default_branch || 'main';
+                let text = '';
+                try {
+                    const tree = await git.readTree(owner, name, ref, '', { withLastCommit: false });
+                    const entry = tree && tree.entries.find((e) => e.type === 'blob' && /^readme(\.md|\.markdown|\.txt)?$/i.test(e.name));
+                    const blob = entry ? await git.readBlob(owner, name, ref, entry.name, { maxBytes: 256 * 1024 }) : null;
+                    if (blob && !blob.binary) text = String(blob.text || '').slice(0, 6000).trim();
+                } catch { /* an empty or unreadable repository: its line only */ }
+                parts.push(`## ${o.full_name}`, '', `${base}/${o.full_name}`, '', o.description || '', '', ...(text ? [text, ''] : []));
+            }
+            llmsFull = { at: Date.now(), body: parts.join('\n') };
+        }
+        res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(llmsFull.body);
     }));
     r.get('/sitemap.xml', h(async (_req, res) => {
         const out = await repos.list({ sort: 'new', limit: 50 });

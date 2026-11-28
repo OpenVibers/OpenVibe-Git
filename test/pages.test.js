@@ -7,6 +7,15 @@ const { boot } = require('./helpers/boot');
     try {
         const sam = t.asUser('sam');
         const repo = await t.ctx.repos.create({ actor: sam, name: 'phone-first', description: 'A phone-first app.', starter: 'app', visibility: 'public' });
+        // llms-full.txt (11-28: a 404 to agents): each official repository's README as it is written.
+        await t.ctx.store.execute('UPDATE git_repos SET official = true WHERE name = ?', ['phone-first']);
+        const full = await t.get('/llms-full.txt');
+        assert.strictEqual(full.status, 200);
+        assert.ok(full.text.startsWith('# OpenVibe Git'));
+        assert.match(full.text, /\n## sam\/phone-first\n\n[^\n]*\/sam\/phone-first\n/);
+        assert.ok(full.text.includes('npm install'), 'the README\'s own words');
+        assert.match((await t.get('/llms.txt')).text, /\/llms-full\.txt\)/);
+        await t.ctx.store.execute('UPDATE git_repos SET official = false WHERE name = ?', ['phone-first']);
 
         const home = await t.get('/');
         assert.equal(home.status, 200);
