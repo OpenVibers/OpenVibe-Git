@@ -74,7 +74,7 @@
 
 .git-avatar { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 9px; background: var(--bg-input); color: var(--accent); font-weight: 700; font-size: .82rem; }
 .git-avatar svg { width: 18px; height: 18px; }
-.git-avatar--sm { width: 26px; height: 26px; flex-basis: 26px; border-radius: 7px; font-size: .7rem; }
+.git-avatar--sm { width: 26px; height: 26px; flex-basis: 26px; border-radius: 7px; font-size: .75rem; }
 .git-avatar--big { width: 64px; height: 64px; flex-basis: 64px; border-radius: 16px; font-size: 1.2rem; }
 .git-avatar--org, .git-avatar--event { border-radius: 50%; }
 .git-activity, .git-official, .git-people, .git-refs, .git-releases, .git-commit-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -103,7 +103,7 @@
 .git-filter { flex: 0 0 auto; min-height: 36px; display: inline-flex; align-items: center; padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); font-size: .86rem; }
 .git-filter.is-on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .git-more { margin-top: 18px; }
-.git-chip { display: inline-flex; align-items: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: .72rem; color: var(--text-muted); font-weight: 600; text-transform: lowercase; }
+.git-chip { display: inline-flex; align-items: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: .75rem; color: var(--text-muted); font-weight: 600; text-transform: lowercase; }
 .git-chip--private { color: var(--warning-text); border-color: var(--warning); }
 .git-chip--gh { color: var(--text-secondary); }
 .git-empty { color: var(--text-muted); padding: 18px 0; }
@@ -154,7 +154,7 @@
 .git-gh-card ul { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; padding: 0; margin: 0; }
 .git-gh-card li { display: grid; }
 .git-gh-card li b { font-size: 1.02rem; }
-.git-gh-card li span { color: var(--text-muted); font-size: .74rem; }
+.git-gh-card li span { color: var(--text-muted); font-size: .75rem; }
 .git-ci.is-ok { color: var(--success-text); }
 .git-ci.is-bad { color: var(--danger-text); }
 .git-ci.is-warn { color: var(--warning-text); }
