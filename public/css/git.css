@@ -301,7 +301,7 @@
 .git-weeks { list-style: none; display: flex; align-items: flex-end; gap: 3px; height: 84px; padding: 0; margin: 0; overflow-x: auto; }
 .git-weeks li { flex: 0 0 12px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
 .git-weeks i { width: 8px; border-radius: 2px 2px 0 0; background: var(--git-l2); display: block; }
-.git-weeks span { color: var(--text-muted); font-size: .6rem; margin-top: 4px; writing-mode: vertical-rl; transform: rotate(180deg); }
+.git-weeks span { color: var(--text-muted); font-size: .75rem; margin-top: 4px; writing-mode: vertical-rl; transform: rotate(180deg); }
 
 /* ── Profile, new, message, forms ─────────────────────── */
 .git-profile-head { display: flex; gap: 16px; align-items: center; margin-bottom: 20px; }
