@@ -34,6 +34,8 @@ function createPageRoutes(ctx) {
     const { config, repos, git, github, mirrors, insights, store, relay, archive, ci, log } = ctx;
     const r = express.Router();
     r.use(express.urlencoded({ extended: false, limit: '256kb' }));
+    // Forgejo's old addresses (crawlers still ask for them) answer 301 to the same page here (http/forgejo-redirects.js).
+    r.use(require('./forgejo-redirects').forgejoRedirects());
     const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
     const viewer = (req) => viewerOf(req);
     const signedIn = (req) => Boolean(req.user);
